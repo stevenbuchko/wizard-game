@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Dragons" />
+    <link rel="apple-touch-icon" href="icon-180.png" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <title>Wizard and Dragons</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1e2a4a; overscroll-behavior: none; }
+      body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; font-family: -apple-system, system-ui, sans-serif; }
+      #game { position: fixed; inset: 0; width: 100vw; height: 100dvh; outline: none; touch-action: none; }
+      .hidden { display: none !important; }
+      #hud { position: fixed; top: calc(12px + env(safe-area-inset-top)); left: calc(16px + env(safe-area-inset-left)); right: calc(16px + env(safe-area-inset-right)); display: flex; justify-content: space-between; font-size: 34px; pointer-events: none; }
+      #friends span { opacity: 0.25; filter: grayscale(1); transition: all 0.4s; }
+      #friends span.got { opacity: 1; filter: none; }
+      #grump { position: fixed; top: calc(70px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; font-size: 32px; pointer-events: none; }
+      #grumpBar { width: 280px; height: 22px; border-radius: 11px; background: rgba(0, 0, 0, 0.35); border: 3px solid #fff; overflow: hidden; }
+      #grumpFill { height: 100%; width: 100%; background: #e24b4a; transition: width 0.3s; }
+      #spells { position: fixed; bottom: calc(20px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; gap: 22px; }
+      #spells button { width: 104px; height: 104px; border-radius: 50%; border: 5px solid #fff; font-size: 50px; line-height: 1; cursor: pointer; transition: transform 0.1s, opacity 0.2s; -webkit-tap-highlight-color: transparent; }
+      #spells button:active { transform: scale(0.9); }
+      #spells.cooling button { opacity: 0.55; }
+      [data-spell="fire"] { background: #d85a30; }
+      [data-spell="ice"] { background: #378add; }
+      [data-spell="lightning"] { background: #ef9f27; }
+      [data-spell="shield"] { background: #7f77dd; }
+      #run { position: fixed; bottom: calc(32px + env(safe-area-inset-bottom)); left: calc(24px + env(safe-area-inset-left)); width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff; background: rgba(0, 0, 0, 0.35); font-size: 38px; color: #fff; -webkit-tap-highlight-color: transparent; }
+      #banner { position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%); font-size: 96px; pointer-events: none; animation: pop 0.4s ease-out; }
+      @keyframes pop { from { transform: translate(-50%, -50%) scale(0.3); } to { transform: translate(-50%, -50%) scale(1); } }
+      #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; background: rgba(30, 42, 74, 0.82); color: #fff; }
+      #start h1 { margin: 0; font-size: 54px; font-weight: 600; }
+      #start button { width: 160px; height: 160px; border-radius: 50%; border: 6px solid #fff; background: #ef9f27; font-size: 72px; color: #fff; -webkit-tap-highlight-color: transparent; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="hud"><div id="hearts"></div><div id="friends"></div></div>
+    <div id="grump" class="hidden"><span>😠</span><div id="grumpBar"><div id="grumpFill"></div></div><span>😊</span></div>
+    <div id="spells" class="hidden">
+      <button data-spell="fire" aria-label="Fire">🔥</button>
+      <button data-spell="ice" aria-label="Ice">❄️</button>
+      <button data-spell="lightning" aria-label="Lightning">⚡</button>
+      <button data-spell="shield" aria-label="Shield">🛡️</button>
+    </div>
+    <button id="run" class="hidden" aria-label="Walk away">↩</button>
+    <div id="banner" class="hidden"></div>
+    <div id="start"><h1>Wizard and Dragons</h1><button aria-label="Play">▶</button></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
