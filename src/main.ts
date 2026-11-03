@@ -35,7 +35,7 @@ const DRAGONS: DragonSpec[] = [
   { name: "storm", color: new Color3(0.3, 0.45, 0.28), belly: new Color3(0.75, 0.8, 0.5), element: "lightning", weakTo: "fire", home: new Vector3(24, 0, -16) },
 ];
 
-const { ground, shadows } = makeWorld(scene, DRAGONS.map((d) => d.home));
+const { ground, shadows, trees } = makeWorld(scene, DRAGONS.map((d) => d.home));
 new GlowLayer("glow", scene).intensity = 0.6;
 
 const wizard = makeWizard(scene);
@@ -82,6 +82,8 @@ let mode: Mode = "title";
 let now = 0;
 let walkTarget: Vector3 | null = null;
 let walkPhase = 0;
+let stuckFor = 0;
+const WIZARD_RADIUS = 0.4;
 let wobble = 0;
 let foe: Dragon | null = null;
 let hearts = HEARTS;
@@ -156,11 +158,46 @@ function burst(at: Vector3, color: Color3, count: number) {
   }
 }
 
+// Moves a point to the edge of any tree it is inside.
+function pushOutOfTrees(p: Vector3) {
+  for (const tree of trees) {
+    const dx = p.x - tree.x;
+    const dz = p.z - tree.z;
+    const d = Math.hypot(dx, dz);
+    const min = tree.radius + WIZARD_RADIUS;
+    if (d < min && d > 0.001) {
+      p.x = tree.x + (dx / d) * min;
+      p.z = tree.z + (dz / d) * min;
+    }
+  }
+}
+
+// Hides any tree standing between the camera and the wizard, so he never disappears behind one.
+function updateTrees() {
+  const cam = camera.position;
+  const eye = wizardChest();
+  const dx = eye.x - cam.x;
+  const dz = eye.z - cam.z;
+  const len2 = dx * dx + dz * dz || 1;
+  for (const tree of trees) {
+    const t = ((tree.x - cam.x) * dx + (tree.z - cam.z) * dz) / len2;
+    let hide = false;
+    if (t > 0 && t < 1) {
+      const sightHeight = cam.y + (eye.y - cam.y) * t;
+      const off = Math.hypot(tree.x - (cam.x + dx * t), tree.z - (cam.z + dz * t));
+      hide = off < tree.crown + 0.8 && sightHeight < tree.height;
+    }
+    for (const m of tree.meshes) m.isVisible = !hide;
+  }
+}
+
 function walkTo(point: Vector3) {
   const p = point.clone();
   p.y = 0;
   if (p.length() > WORLD_RADIUS) p.normalize().scaleInPlace(WORLD_RADIUS);
+  pushOutOfTrees(p);
   walkTarget = p;
+  stuckFor = 0;
   marker.position.set(p.x, 0.06, p.z);
   marker.isVisible = true;
   sfx.tap();
@@ -273,8 +310,17 @@ function updateWizard(dt: number) {
       marker.isVisible = false;
     } else {
       walking = true;
-      pos.addInPlace(to.normalize().scale(Math.min(dist, WALK_SPEED * dt)));
+      const step = Math.min(dist, WALK_SPEED * dt);
+      const before = pos.clone();
+      pos.addInPlace(to.normalize().scale(step));
+      pushOutOfTrees(pos);
       turnToward(wizard.root, walkTarget, dt, 10);
+      // Pressed against a tree with nowhere to slide: give up rather than walk on the spot.
+      stuckFor = Vector3.Distance(before, pos) < step * 0.3 ? stuckFor + dt : 0;
+      if (stuckFor > 0.5) {
+        walkTarget = null;
+        marker.isVisible = false;
+      }
     }
   }
   if (foe) turnToward(wizard.root, foe.root.position, dt, 6);
@@ -384,6 +430,7 @@ scene.onBeforeRenderObservable.add(() => {
   updateDragons(dt);
   updateBattle();
   updateCamera(dt);
+  updateTrees();
   for (let i = effects.length - 1; i >= 0; i--) if (!effects[i](dt)) effects.splice(i, 1);
 });
 engine.runRenderLoop(() => scene.render());
@@ -392,4 +439,4 @@ window.addEventListener("resize", () => engine.resize());
 if (import.meta.env.PROD && "serviceWorker" in navigator) void navigator.serviceWorker.register("sw.js");
 
 // Exposed for play-testing from the browser console.
-Object.assign(window, { game: { walkTo, cast, dragons, wizard } });
+Object.assign(window, { game: { walkTo, cast, dragons, wizard, trees, camera } });

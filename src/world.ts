@@ -1,4 +1,5 @@
 import {
+  AbstractMesh,
   Color3,
   Color4,
   DirectionalLight,
@@ -30,7 +31,16 @@ function random(seed: number): () => number {
   };
 }
 
-export function makeWorld(scene: Scene, keepClear: Vector3[]): { ground: Mesh; shadows: ShadowGenerator } {
+export interface Tree {
+  x: number;
+  z: number;
+  radius: number; // trunk plus a margin, for walking into
+  crown: number; // crown radius, for hiding it from the camera
+  height: number;
+  meshes: AbstractMesh[];
+}
+
+export function makeWorld(scene: Scene, keepClear: Vector3[]): { ground: Mesh; shadows: ShadowGenerator; trees: Tree[] } {
   const sky = new Color3(0.62, 0.8, 0.95);
   scene.clearColor = new Color4(sky.r, sky.g, sky.b, 1);
   scene.fogMode = Scene.FOGMODE_LINEAR;
@@ -67,20 +77,25 @@ export function makeWorld(scene: Scene, keepClear: Vector3[]): { ground: Mesh; s
   const flower = MeshBuilder.CreateSphere("flower", { diameter: 0.25, segments: 4 }, scene);
   flower.material = material(scene, new Color3(1, 0.85, 0.3));
 
+  const trees: Tree[] = [];
+  // Every tree is an instance, with the source meshes hidden, so each one can be hidden on its own.
+  trunk.isVisible = false;
+  crown.isVisible = false;
   let placed = 0;
   while (placed < 150) {
     const x = (rand() - 0.5) * 120;
     const z = (rand() - 0.5) * 120;
     if (!clear(x, z, 10)) continue;
     const s = 0.8 + rand() * 0.8;
-    const t = placed === 0 ? trunk : trunk.createInstance("t");
-    const c = placed === 0 ? crown : crown.createInstance("c");
+    const t = trunk.createInstance("t");
+    const c = crown.createInstance("c");
     t.position.set(x, 1.2 * s, z);
     t.scaling.setAll(s);
     c.position.set(x, (2.4 + 2.0) * s, z);
     c.scaling.setAll(s);
     shadows.addShadowCaster(t);
     shadows.addShadowCaster(c);
+    trees.push({ x, z, radius: 0.7 * s, crown: 1.6 * s, height: 6.6 * s, meshes: [t, c] });
     placed++;
   }
   for (let i = 0; i < 30; i++) {
@@ -97,5 +112,5 @@ export function makeWorld(scene: Scene, keepClear: Vector3[]): { ground: Mesh; s
   }
 
   for (const m of scene.meshes) m.isPickable = m === ground;
-  return { ground, shadows };
+  return { ground, shadows, trees };
 }
