@@ -9,49 +9,56 @@ import {
   StandardMaterial,
   TransformNode,
   Vector3,
-} from "@babylonjs/core";
-import { makeDragon, makeWizard, SPELL_COLORS, type Dragon, type DragonSpec, type Spell } from "./characters";
-import { makeWorld, WORLD_RADIUS } from "./world";
-import { sfx, unlockAudio } from "./audio";
+} from "./babylon";
+import { AREAS, type AreaId } from "./areas";
+import { applyLook, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spell } from "./characters";
+import { DRAGONS } from "./dragons";
+import { bolt, burst, trail, type Sparkle } from "./effects";
+import { PathGrid } from "./path";
+import { buildArea, setupLights, WORLD_RADIUS, type Area, type Star } from "./world";
+import { setBattleMusic, setMuted, sfx, startMusic, unlockAudio } from "./audio";
+import { load, save } from "./save";
 import { ui } from "./ui";
 
 const WALK_SPEED = 5;
+const FLY_SPEED = 11;
+const FLY_HEIGHT = 8;
 const FACE_OFF_DISTANCE = 7;
 const STRONG_HIT = 34; // three strong spells befriend a dragon
 const WEAK_HIT = 8;
 const SPELL_COOLDOWN = 0.7;
 const SHIELD_TIME = 2.5;
 const HEARTS = 3;
+const MAX_FOLLOWERS = 3; // the most recent friends walk with him; the rest wait at home
+const WIZARD_RADIUS = 0.4;
+const SADDLE = new Vector3(0, 2.55, -0.3);
+
+const data = load();
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const engine = new Engine(canvas, true, { stencil: true });
 engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, 1.5));
 const scene = new Scene(engine);
-
-const SPAWN = Vector3.Zero();
-const DRAGONS: DragonSpec[] = [
-  { name: "bronze", color: new Color3(0.72, 0.3, 0.16), belly: new Color3(0.9, 0.7, 0.45), element: "fire", weakTo: "ice", home: new Vector3(0, 0, 24) },
-  { name: "frost", color: new Color3(0.62, 0.78, 0.9), belly: new Color3(0.92, 0.95, 1), element: "ice", weakTo: "lightning", home: new Vector3(-26, 0, -10) },
-  { name: "storm", color: new Color3(0.3, 0.45, 0.28), belly: new Color3(0.75, 0.8, 0.5), element: "lightning", weakTo: "fire", home: new Vector3(24, 0, -16) },
-];
-
-const { ground, shadows, trees } = makeWorld(scene, DRAGONS.map((d) => d.home));
+const shadows = setupLights(scene);
 new GlowLayer("glow", scene).intensity = 0.6;
 
 const wizard = makeWizard(scene);
+applyLook(wizard, data.look);
 wizard.meshes.forEach((m) => shadows.addShadowCaster(m));
-const dragons = DRAGONS.map((spec) => makeDragon(scene, spec));
-for (const d of dragons) {
+
+const dragons = DRAGONS.map((spec) => {
+  const d = makeDragon(scene, spec);
   d.meshes.forEach((m) => shadows.addShadowCaster(m));
-  d.root.rotation.y = yawTo(d.root.position, SPAWN);
-}
+  if (data.friends.includes(spec.id)) makeFriend(d);
+  return d;
+});
 
 const camera = new ArcRotateCamera("camera", -Math.PI / 2, 1.05, 14, new Vector3(0, 1.5, 0), scene);
 camera.attachControl(canvas, true);
-camera.lowerRadiusLimit = 9;
-camera.upperRadiusLimit = 26;
+camera.lowerRadiusLimit = 6;
+camera.upperRadiusLimit = 30;
 camera.lowerBetaLimit = 0.45;
-camera.upperBetaLimit = 1.35;
+camera.upperBetaLimit = 1.4;
 camera.panningSensibility = 0;
 camera.angularSensibilityX = 600;
 camera.angularSensibilityY = 600;
@@ -77,21 +84,28 @@ shieldBubble.position.y = 1.2;
 shieldBubble.isPickable = false;
 shieldBubble.isVisible = false;
 
-type Mode = "title" | "explore" | "battle" | "nap";
+type Mode = "title" | "wardrobe" | "explore" | "battle" | "nap" | "travel";
 let mode: Mode = "title";
 let now = 0;
+let area: Area;
+let grid: PathGrid;
+let currentArea: AreaId = "forest";
 let walkTarget: Vector3 | null = null;
+let walkPath: Vector3[] = []; // waypoints on foot; walkTarget is the final tap
 let walkPhase = 0;
 let stuckFor = 0;
-const WIZARD_RADIUS = 0.4;
 let wobble = 0;
+let shake = 0;
 let foe: Dragon | null = null;
+let riding: Dragon | null = null;
+let landing = false;
 let hearts = HEARTS;
 let shieldUntil = 0;
 let cooldownUntil = 0;
 let nextPuffAt = 0;
 let windup = false;
-let battleCamUntil = 0;
+let lockedHintUntil = 0;
+let camCue: { until: number; radius: number; beta: number; alpha?: () => number } | null = null;
 
 // Each effect runs once per frame until it returns false.
 const effects: Array<(dt: number) => boolean> = [];
@@ -109,6 +123,11 @@ function turnToward(node: TransformNode, at: Vector3, dt: number, speed: number)
   node.rotation.y = lerpAngle(node.rotation.y, yawTo(node.position, at), dt * speed);
 }
 
+// The camera angle that puts the camera behind something facing this way.
+function behind(yaw: number): number {
+  return Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
+}
+
 function flatDistance(a: Vector3, b: Vector3): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
@@ -118,56 +137,37 @@ function headOf(d: Dragon): Vector3 {
 }
 
 function wizardChest(): Vector3 {
-  return wizard.root.position.add(new Vector3(0, 1.3, 0));
+  return wizard.root.getAbsolutePosition().add(new Vector3(0, 1.3, 0));
 }
 
-function orb(from: Vector3, to: () => Vector3, color: Color3, duration: number, onArrive: () => void) {
-  const m = MeshBuilder.CreateSphere("orb", { diameter: 0.55, segments: 8 }, scene);
-  m.material = glowMaterial(color);
-  m.isPickable = false;
-  let t = 0;
-  effects.push((dt) => {
-    t = Math.min(1, t + dt / duration);
-    Vector3.LerpToRef(from, to(), t, m.position);
-    m.position.y += Math.sin(t * Math.PI) * 1.2;
-    if (t < 1) return true;
-    m.dispose();
-    onArrive();
-    return false;
-  });
+function makeFriend(d: Dragon) {
+  d.friend = true;
+  d.grump = 0;
+  d.skin.emissiveColor = d.skin.diffuseColor.scale(0.2);
 }
 
-function burst(at: Vector3, color: Color3, count: number) {
-  const mat = glowMaterial(color);
-  for (let i = 0; i < count; i++) {
-    const m = MeshBuilder.CreateSphere("spark", { diameter: 0.25, segments: 4 }, scene);
-    m.material = mat;
-    m.isPickable = false;
-    m.position.copyFrom(at);
-    const v = new Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).scale(8);
-    let life = 0.7;
-    effects.push((dt) => {
-      life -= dt;
-      v.y -= 9 * dt;
-      m.position.addInPlace(v.scale(dt));
-      m.scaling.setAll(Math.max(0.01, life / 0.7));
-      if (life > 0) return true;
-      m.dispose();
-      return false;
-    });
-  }
+function followers(): Dragon[] {
+  return data.friends
+    .map((id) => dragons.find((d) => d.spec.id === id))
+    .filter((d): d is Dragon => !!d)
+    .slice(-MAX_FOLLOWERS);
 }
 
-// Moves a point to the edge of any tree it is inside.
-function pushOutOfTrees(p: Vector3) {
-  for (const tree of trees) {
-    const dx = p.x - tree.x;
-    const dz = p.z - tree.z;
+// A dragon is in the scene if it lives in this area or is walking with him.
+function updatePresence() {
+  const walking = followers();
+  for (const d of dragons) d.root.setEnabled(walking.includes(d) || d.spec.area === currentArea);
+}
+
+function pushOut(p: Vector3, radius: number) {
+  for (const o of area.obstacles) {
+    const dx = p.x - o.x;
+    const dz = p.z - o.z;
     const d = Math.hypot(dx, dz);
-    const min = tree.radius + WIZARD_RADIUS;
+    const min = o.radius + radius;
     if (d < min && d > 0.001) {
-      p.x = tree.x + (dx / d) * min;
-      p.z = tree.z + (dz / d) * min;
+      p.x = o.x + (dx / d) * min;
+      p.z = o.z + (dz / d) * min;
     }
   }
 }
@@ -179,7 +179,7 @@ function updateTrees() {
   const dx = eye.x - cam.x;
   const dz = eye.z - cam.z;
   const len2 = dx * dx + dz * dz || 1;
-  for (const tree of trees) {
+  for (const tree of area.trees) {
     const t = ((tree.x - cam.x) * dx + (tree.z - cam.z) * dz) / len2;
     let hide = false;
     if (t > 0 && t < 1) {
@@ -191,11 +191,82 @@ function updateTrees() {
   }
 }
 
+function enterArea(id: AreaId, from?: AreaId) {
+  area?.dispose();
+  currentArea = id;
+  const spec = AREAS[id];
+  const homes = DRAGONS.filter((d) => d.area === id).map((d) => new Vector3(d.home[0], 0, d.home[1]));
+  area = buildArea(scene, spec, shadows, homes, data.stars);
+  grid = new PathGrid(area.obstacles, WIZARD_RADIUS + 0.1);
+
+  const arrival = from ? area.portals.find((p) => p.to === from) : undefined;
+  const spawn = arrival ? new Vector3(arrival.x, 0, arrival.z) : new Vector3(spec.spawn[0], 0, spec.spawn[1]);
+  if (arrival) spawn.subtractInPlace(spawn.normalizeToNew().scale(9)); // step out of the portal, toward the middle
+  wizard.root.position.copyFrom(spawn);
+  wizard.root.rotation.y = yawTo(spawn, Vector3.Zero());
+  walkTarget = null;
+  marker.isVisible = false;
+
+  const walking = followers();
+  for (const d of dragons) {
+    if (walking.includes(d)) continue;
+    d.root.position.set(d.spec.home[0], 0, d.spec.home[1]);
+    d.root.rotation.y = yawTo(d.root.position, spawn);
+  }
+  const yaw = wizard.root.rotation.y;
+  const ahead = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const side = new Vector3(ahead.z, 0, -ahead.x);
+  walking.forEach((d, i) => {
+    // Beside him and a little ahead, never between him and the camera.
+    d.root.position.copyFrom(spawn).addInPlace(ahead.scale(2 + i * 2)).addInPlace(side.scale(i % 2 ? 5 : -5));
+    d.root.rotation.y = yaw;
+  });
+  updatePresence();
+  area.portals.forEach((p) => p.setFriends(data.friends.length));
+  camera.target.copyFrom(spawn).addInPlace(new Vector3(0, 1.5, 0));
+  camera.alpha = behind(yaw);
+}
+
+function travel(to: AreaId) {
+  mode = "travel";
+  sfx.portal();
+  ui.fade(true);
+  setTimeout(() => {
+    enterArea(to, currentArea);
+    ui.fade(false);
+    mode = "explore";
+  }, 450);
+}
+
+function orb(from: Vector3, to: () => Vector3, kind: Sparkle, duration: number, onArrive: () => void) {
+  const m = MeshBuilder.CreateSphere("orb", { diameter: 0.5, segments: 8 }, scene);
+  m.material = glowMaterial(kind === "gold" ? new Color3(1, 0.85, 0.3) : SPELL_COLORS[kind]);
+  m.isPickable = false;
+  m.position.copyFrom(from);
+  const stopTrail = trail(scene, m, kind);
+  let t = 0;
+  effects.push((dt) => {
+    t = Math.min(1, t + dt / duration);
+    Vector3.LerpToRef(from, to(), t, m.position);
+    m.position.y += Math.sin(t * Math.PI) * 1.2;
+    if (t < 1) return true;
+    stopTrail();
+    m.dispose();
+    onArrive();
+    return false;
+  });
+}
+
 function walkTo(point: Vector3) {
   const p = point.clone();
   p.y = 0;
   if (p.length() > WORLD_RADIUS) p.normalize().scaleInPlace(WORLD_RADIUS);
-  pushOutOfTrees(p);
+  if (!riding) {
+    const path = grid.find(wizard.root.position, p);
+    if (!path || !path.length) return;
+    walkPath = path;
+    p.copyFrom(path[path.length - 1]);
+  }
   walkTarget = p;
   stuckFor = 0;
   marker.position.set(p.x, 0.06, p.z);
@@ -210,16 +281,23 @@ function startBattle(d: Dragon) {
   marker.isVisible = false;
   nextPuffAt = now + 4;
   windup = false;
-  battleCamUntil = now + 1.2;
+  camCue = {
+    until: now + 1.2,
+    radius: 17,
+    beta: 1.15,
+    alpha: () => Math.atan2(wizard.root.position.z - d.root.position.z, wizard.root.position.x - d.root.position.x),
+  };
   ui.grump(d.grump / 100);
   ui.battle(true);
-  sfx.growl();
+  setBattleMusic(true);
+  sfx.roar();
 }
 
 function endBattle() {
   foe = null;
   windup = false;
   ui.battle(false);
+  setBattleMusic(false);
 }
 
 function cast(spell: Spell) {
@@ -229,57 +307,84 @@ function cast(spell: Spell) {
   sfx[spell]();
   if (spell === "shield") {
     shieldUntil = now + SHIELD_TIME;
+    burst(scene, wizardChest(), "shield", 30);
     return;
   }
   const target = foe;
-  orb(wizard.crystal.getAbsolutePosition().clone(), () => headOf(target), SPELL_COLORS[spell], 0.45, () => {
-    if (foe !== target) return;
-    const strong = spell === target.weakTo;
-    target.grump = Math.max(0, target.grump - (strong ? STRONG_HIT : WEAK_HIT));
-    target.flinch = strong ? 1 : 0.3;
-    burst(headOf(target), SPELL_COLORS[spell], strong ? 18 : 6);
-    if (strong) sfx.strong();
-    else sfx.weak();
-    ui.grump(target.grump / 100);
-    if (target.grump === 0) befriend(target);
-  });
+  const from = wizard.crystal.getAbsolutePosition().clone();
+  if (spell === "lightning") {
+    bolt(scene, from, headOf(target));
+    setTimeout(() => hit(target, spell), 120);
+    return;
+  }
+  orb(from, () => headOf(target), spell, 0.45, () => hit(target, spell));
+}
+
+function hit(target: Dragon, spell: Spell) {
+  if (foe !== target) return;
+  const strong = spell === target.spec.weakTo;
+  target.grump = Math.max(0, target.grump - (strong ? STRONG_HIT : WEAK_HIT));
+  target.flinch = strong ? 1 : 0.3;
+  burst(scene, headOf(target), spell, strong ? 70 : 15);
+  if (strong) {
+    shake = 0.5;
+    sfx.strong();
+  } else {
+    sfx.weak();
+  }
+  ui.grump(target.grump / 100);
+  if (target.grump === 0) befriend(target);
 }
 
 function befriend(d: Dragon) {
-  d.friend = true;
-  d.skin.emissiveColor = d.skin.diffuseColor.scale(0.2);
+  makeFriend(d);
+  data.friends.push(d.spec.id);
+  save(data);
   endBattle();
   mode = "explore";
-  sfx.friend();
-  burst(headOf(d), new Color3(1, 0.85, 0.3), 40);
-  const count = dragons.filter((x) => x.friend).length;
+  burst(scene, headOf(d), "gold", 120);
+  updatePresence();
+  const count = data.friends.length;
   ui.friends(count, dragons.length);
-  ui.banner(count === dragons.length ? "🎉🐉🎉" : "🐉💛", 2.5);
+  area.portals.forEach((p) => p.setFriends(count));
+  if (count === dragons.length) {
+    sfx.celebrate();
+    ui.banner("🎉🐉🎉", 4);
+    for (let i = 0; i < 4; i++) setTimeout(() => burst(scene, wizardChest().add(new Vector3(0, 3, 0)), "gold", 100), i * 400);
+    return;
+  }
+  sfx.friend();
+  ui.banner("🐉💛", 2.5);
+  // Tell him when a new friend opens a portal anywhere.
+  const opened = Object.values(AREAS).some((a) => a.portals.some((p) => p.needs === count));
+  if (opened) setTimeout(() => { sfx.portal(); ui.banner("🔓✨", 2); }, 2700);
 }
 
 function dragonPuff(d: Dragon) {
-  orb(headOf(d), wizardChest, SPELL_COLORS[d.element], 0.8, () => {
+  orb(headOf(d), wizardChest, d.spec.element, 0.8, () => {
     if (foe !== d) return;
     if (now < shieldUntil) {
       sfx.block();
-      burst(wizardChest(), SPELL_COLORS.shield, 10);
+      burst(scene, wizardChest(), "shield", 40);
       return;
     }
     hearts--;
     wobble = 1;
+    shake = 0.35;
     ui.hearts(hearts);
     sfx.hurt();
     if (hearts <= 0) nap(d);
   });
 }
 
-// Losing is a nap, never a game over: back to the start, hearts refilled.
+// Losing is a nap, never a game over: back to the area's start, hearts refilled.
 function nap(d: Dragon) {
   endBattle();
   mode = "nap";
   ui.banner("💤", 2);
   setTimeout(() => {
-    wizard.root.position.copyFrom(SPAWN);
+    const [x, z] = AREAS[currentArea].spawn;
+    wizard.root.position.set(x, 0, z);
     d.grump = 100;
     hearts = HEARTS;
     ui.hearts(hearts);
@@ -298,23 +403,83 @@ function walkAway() {
   walkTo(wizard.root.position.add(away.normalize().scale(6)));
 }
 
+function toggleRide() {
+  if (mode !== "explore") return;
+  if (riding) {
+    landing = true;
+    walkTarget = null;
+    marker.isVisible = false;
+    return;
+  }
+  const choices = followers();
+  if (!choices.length) return;
+  const d = choices.reduce((a, b) => (flatDistance(a.root.position, wizard.root.position) < flatDistance(b.root.position, wizard.root.position) ? a : b));
+  riding = d;
+  landing = false;
+  walkTarget = null;
+  marker.isVisible = false;
+  wizard.root.parent = d.root;
+  wizard.root.position.copyFrom(SADDLE);
+  wizard.root.rotation.y = 0;
+  wizard.root.scaling.setAll(1 / d.root.scaling.x);
+  burst(scene, wizardChest(), "gold", 40);
+  sfx.whoosh();
+  camCue = { until: now + 1.5, radius: 24, beta: 1.0 };
+}
+
+function dismount() {
+  const d = riding!;
+  riding = null;
+  landing = false;
+  wizard.root.parent = null;
+  wizard.root.scaling.setAll(1);
+  const side = new Vector3(Math.cos(d.root.rotation.y), 0, -Math.sin(d.root.rotation.y)).scale(3);
+  wizard.root.position.copyFrom(d.root.position).addInPlace(side);
+  wizard.root.position.y = 0;
+  pushOut(wizard.root.position, WIZARD_RADIUS);
+  wizard.root.rotation.y = d.root.rotation.y;
+  camCue = { until: now + 1.2, radius: 14, beta: 1.05 };
+}
+
+function collect(star: Star) {
+  star.collected = true;
+  burst(scene, star.mesh.position, "gold", 60);
+  star.mesh.dispose();
+  data.stars.push(star.id);
+  save(data);
+  ui.stars(data.stars.length);
+  sfx.star();
+}
+
 function updateWizard(dt: number) {
+  wobble = Math.max(0, wobble - dt * 1.5);
+  wizard.body.rotation.z = Math.sin(now * 30) * 0.25 * wobble;
+  shieldBubble.isVisible = now < shieldUntil;
+  marker.scaling.setAll(1 + Math.sin(now * 6) * 0.1);
+  if (riding) {
+    wizard.body.position.y = Math.sin(now * 3) * 0.05;
+    return;
+  }
+
   const pos = wizard.root.position;
   let walking = false;
   if (walkTarget && mode === "explore") {
-    const to = walkTarget.subtract(pos);
+    while (walkPath.length > 1 && flatDistance(pos, walkPath[0]) < 0.3) walkPath.shift();
+    const next = walkPath[0] ?? walkTarget;
+    const to = next.subtract(pos);
     to.y = 0;
     const dist = to.length();
-    if (dist < 0.2) {
+    if (dist < 0.2 && walkPath.length <= 1) {
       walkTarget = null;
+      walkPath = [];
       marker.isVisible = false;
     } else {
       walking = true;
       const step = Math.min(dist, WALK_SPEED * dt);
       const before = pos.clone();
       pos.addInPlace(to.normalize().scale(step));
-      pushOutOfTrees(pos);
-      turnToward(wizard.root, walkTarget, dt, 10);
+      pushOut(pos, WIZARD_RADIUS);
+      turnToward(wizard.root, next, dt, 10);
       // Pressed against a tree with nowhere to slide: give up rather than walk on the spot.
       stuckFor = Vector3.Distance(before, pos) < step * 0.3 ? stuckFor + dt : 0;
       if (stuckFor > 0.5) {
@@ -326,40 +491,86 @@ function updateWizard(dt: number) {
   if (foe) turnToward(wizard.root, foe.root.position, dt, 6);
   walkPhase += walking ? dt * 12 : 0;
   wizard.body.position.y = walking ? Math.abs(Math.sin(walkPhase)) * 0.12 : 0;
-  wobble = Math.max(0, wobble - dt * 1.5);
-  wizard.body.rotation.z = Math.sin(now * 30) * 0.25 * wobble;
-  shieldBubble.isVisible = now < shieldUntil;
-  marker.scaling.setAll(1 + Math.sin(now * 6) * 0.1);
 
   if (mode !== "explore") return;
+  for (const p of area.portals) {
+    if (Math.hypot(pos.x - p.x, pos.z - p.z) > 2.6) continue;
+    if (data.friends.length >= p.needs) {
+      travel(p.to);
+      return;
+    }
+    if (now > lockedHintUntil) {
+      lockedHintUntil = now + 3;
+      sfx.locked();
+      ui.banner("🔒", 1.2);
+    }
+  }
   for (const d of dragons) {
-    if (!d.friend && now > d.calmUntil && flatDistance(pos, d.root.position) < FACE_OFF_DISTANCE) {
+    if (d.root.isEnabled() && !d.friend && now > d.calmUntil && flatDistance(pos, d.root.position) < FACE_OFF_DISTANCE) {
       startBattle(d);
       return;
     }
   }
 }
 
+function updateRide(dt: number) {
+  if (!riding) return;
+  const d = riding;
+  const p = d.root.position;
+  p.y += ((landing ? 0 : FLY_HEIGHT) - p.y) * Math.min(1, dt * (landing ? 3 : 1.5));
+  if (landing && p.y < 0.08) {
+    dismount();
+    return;
+  }
+  if (walkTarget && !landing) {
+    const to = walkTarget.subtract(p);
+    to.y = 0;
+    const dist = to.length();
+    if (dist < 0.6) {
+      walkTarget = null;
+      marker.isVisible = false;
+    } else {
+      p.addInPlace(to.normalize().scale(Math.min(dist, FLY_SPEED * dt)));
+      turnToward(d.root, walkTarget, dt, 3);
+    }
+  }
+  const flat = Math.hypot(p.x, p.z);
+  if (flat > WORLD_RADIUS) {
+    p.x *= WORLD_RADIUS / flat;
+    p.z *= WORLD_RADIUS / flat;
+  }
+  const body = p.add(new Vector3(0, 2.5, 0));
+  for (const s of area.stars) if (!s.collected && Vector3.Distance(body, s.mesh.position) < 3.5) collect(s);
+}
+
 function updateDragons(dt: number) {
-  const back = new Vector3(Math.sin(wizard.root.rotation.y), 0, Math.cos(wizard.root.rotation.y)).scale(-1);
+  const leader = riding ? riding.root : wizard.root;
+  const back = new Vector3(Math.sin(leader.rotation.y), 0, Math.cos(leader.rotation.y)).scale(-1);
   const side = new Vector3(back.z, 0, -back.x);
-  let followers = 0;
+  const walking = followers().filter((d) => d !== riding);
   for (const d of dragons) {
-    let moving = false;
-    if (d.friend) {
-      const goal = wizard.root.position.add(back.scale(6 + followers * 4)).add(side.scale(followers % 2 ? 3 : -3));
-      followers++;
+    if (!d.root.isEnabled()) continue;
+    let moving = d === riding && !!walkTarget;
+    const i = walking.indexOf(d);
+    if (i >= 0) {
+      // Off to his sides, so they never stand between him and the camera; further out during a face-off, to leave the view clear.
+      const goal = foe
+        ? leader.position.add(side.scale(i % 2 ? 10 : -10)).add(back.scale(i > 1 ? -4 : 2))
+        : leader.position.add(back.scale(2 + i * 2)).add(side.scale(i % 2 ? 5.5 : -5.5));
       const to = goal.subtract(d.root.position);
       to.y = 0;
       const dist = to.length();
       if (dist > 0.8) {
         moving = true;
-        d.root.position.addInPlace(to.normalize().scale(Math.min(dist, Math.min(dist * 1.5, 8) * dt)));
+        d.root.position.addInPlace(to.normalize().scale(Math.min(dist, Math.min(dist * 1.5, riding ? FLY_SPEED : 8) * dt)));
         turnToward(d.root, goal, dt, 4);
       }
+      d.root.position.y += ((riding ? FLY_HEIGHT : 0) - d.root.position.y) * Math.min(1, dt * 1.5);
+      if (d.root.position.y > 0.5) moving = true;
     } else if (d === foe) {
       turnToward(d.root, wizard.root.position, dt, 5);
     }
+    if (d === riding && d.root.position.y > 0.5) moving = true;
     d.phase += dt * (moving ? 7 : 1.6);
     const flap = 0.35 + Math.sin(d.phase) * (moving ? 0.5 : 0.25);
     d.wings[0].rotation.z = -flap;
@@ -386,21 +597,37 @@ function updateBattle() {
   }
 }
 
-function updateCamera(dt: number) {
-  const goal =
-    mode === "battle" && foe
-      ? Vector3.Center(wizard.root.position, foe.root.position).add(new Vector3(0, 2.5, 0))
-      : wizard.root.position.add(new Vector3(0, 1.5, 0));
-  Vector3.LerpToRef(camera.target, goal, Math.min(1, dt * 4), camera.target);
-  if (mode === "battle" && foe && now < battleCamUntil) {
-    const behind = Math.atan2(wizard.root.position.z - foe.root.position.z, wizard.root.position.x - foe.root.position.x);
-    camera.alpha = lerpAngle(camera.alpha, behind, dt * 4);
-    camera.radius += (17 - camera.radius) * Math.min(1, dt * 3);
-    camera.beta += (1.15 - camera.beta) * Math.min(1, dt * 3);
+function updateWorld(dt: number) {
+  for (const s of area.stars) {
+    s.mesh.rotation.y += dt * 2;
+    s.mesh.position.y = s.baseY + Math.sin(now * 2 + s.baseY) * 0.3;
   }
+  for (const p of area.portals) p.disc.rotation.z += dt;
 }
 
-// A quick touch that barely moves is a tap to walk; anything else turns or zooms the camera.
+function updateCamera(dt: number) {
+  const w = wizard.root.position;
+  let goal: Vector3;
+  if (mode === "battle" && foe) goal = Vector3.Center(w, foe.root.position).add(new Vector3(0, 2.5, 0));
+  else if (riding) goal = riding.root.position.add(new Vector3(0, 3, 0));
+  else goal = w.add(new Vector3(0, mode === "wardrobe" ? 1.4 : 1.5, 0));
+  Vector3.LerpToRef(camera.target, goal, Math.min(1, dt * 4), camera.target);
+
+  if (mode === "wardrobe") {
+    // Face the wizard from the front, close up, while he dresses.
+    const yaw = wizard.root.rotation.y;
+    camCue = { until: now + 1, radius: 6, beta: 1.35, alpha: () => Math.atan2(Math.cos(yaw), Math.sin(yaw)) };
+  }
+  if (camCue && now < camCue.until) {
+    if (camCue.alpha) camera.alpha = lerpAngle(camera.alpha, camCue.alpha(), dt * 4);
+    camera.radius += (camCue.radius - camera.radius) * Math.min(1, dt * 3);
+    camera.beta += (camCue.beta - camera.beta) * Math.min(1, dt * 3);
+  }
+  shake = Math.max(0, shake - dt * 1.5);
+  camera.targetScreenOffset.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+}
+
+// A quick touch that barely moves is a tap to walk or fly; anything else turns or zooms the camera.
 let down: { x: number; y: number; t: number } | null = null;
 scene.onPointerObservable.add((info) => {
   const e = info.event as PointerEvent;
@@ -408,29 +635,56 @@ scene.onPointerObservable.add((info) => {
   if (info.type !== PointerEventTypes.POINTERUP || !down) return;
   const tap = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 400;
   down = null;
-  if (!tap || mode !== "explore") return;
-  const pick = scene.pick(scene.pointerX, scene.pointerY, (m) => m === ground);
+  if (!tap || mode !== "explore" || landing) return;
+  const pick = scene.pick(scene.pointerX, scene.pointerY, (m) => m === area.ground);
   if (pick?.hit && pick.pickedPoint) walkTo(pick.pickedPoint);
 });
 
 ui.onStart(() => {
   unlockAudio();
+  setMuted(data.muted);
+  startMusic();
   mode = "explore";
+  camCue = { until: now + 1.2, radius: 14, beta: 1.05, alpha: () => behind(wizard.root.rotation.y) };
   ui.banner("👆", 1.5);
 });
+ui.onWardrobe(
+  data.look,
+  () => (mode = "wardrobe"),
+  (look) => {
+    applyLook(wizard, look);
+    save(data);
+  },
+  () => (mode = "title"),
+);
 ui.onSpell(cast);
 ui.onRun(walkAway);
+ui.onRide(toggleRide);
+ui.onMute(() => {
+  data.muted = !data.muted;
+  unlockAudio();
+  setMuted(data.muted);
+  ui.muted(data.muted);
+  save(data);
+});
 ui.hearts(hearts);
-ui.friends(0, dragons.length);
+ui.friends(data.friends.length, dragons.length);
+ui.stars(data.stars.length);
+ui.muted(data.muted);
+
+enterArea("forest");
 
 scene.onBeforeRenderObservable.add(() => {
   const dt = Math.min(engine.getDeltaTime() / 1000, 0.05);
   now += dt;
+  updateRide(dt);
   updateWizard(dt);
   updateDragons(dt);
   updateBattle();
+  updateWorld(dt);
   updateCamera(dt);
   updateTrees();
+  ui.ride(mode !== "explore" ? "hidden" : riding ? "land" : followers().length ? "mount" : "hidden");
   for (let i = effects.length - 1; i >= 0; i--) if (!effects[i](dt)) effects.splice(i, 1);
 });
 engine.runRenderLoop(() => scene.render());
@@ -439,4 +693,4 @@ window.addEventListener("resize", () => engine.resize());
 if (import.meta.env.PROD && "serviceWorker" in navigator) void navigator.serviceWorker.register("sw.js");
 
 // Exposed for play-testing from the browser console.
-Object.assign(window, { game: { walkTo, cast, dragons, wizard, trees, camera } });
+Object.assign(window, { game: { walkTo, cast, toggleRide, travel, dragons, wizard, data, get area() { return area; }, get mode() { return mode; }, camera } });
