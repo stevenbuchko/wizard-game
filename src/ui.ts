@@ -32,21 +32,27 @@ export const ui = {
   onRide: (cb: () => void) => press($("ride"), cb),
   onMute: (cb: () => void) => press($("mute"), cb),
 
-  // The look picker: robe swatches, crystal swatches, hood or hat.
-  onWardrobe(look: Look, open: () => void, change: (look: Look) => void, done: () => void) {
+  // The look picker: robe swatches, crystal swatches, staff, hood or hat, and his name.
+  onWardrobe(look: Look, name: string, open: () => void, change: (look: Look, name: string) => void, done: () => void) {
     const render = () => {
       $("robes").innerHTML = ROBES.map((c) => `<button class="swatch${c === look.robe ? " on" : ""}" data-robe="${c}" style="background:${c}"></button>`).join("");
       $("crystals").innerHTML = CRYSTALS.map((c) => `<button class="swatch${c === look.crystal ? " on" : ""}" data-crystal="${c}" style="background:${c}"></button>`).join("");
       document.querySelectorAll(".hatPick").forEach((b) => b.classList.toggle("on", (b as HTMLElement).dataset.hat === look.hat));
+      document.querySelectorAll(".staffPick").forEach((b) => b.classList.toggle("on", (b as HTMLElement).dataset.staff === look.staff));
       document.querySelectorAll<HTMLElement>("[data-robe]").forEach((b) => press(b, () => pick({ robe: b.dataset.robe! })));
       document.querySelectorAll<HTMLElement>("[data-crystal]").forEach((b) => press(b, () => pick({ crystal: b.dataset.crystal! })));
     };
     const pick = (part: Partial<Look>) => {
       Object.assign(look, part);
-      change(look);
+      change(look, input.value.trim());
       render();
     };
+    const input = $("name") as HTMLInputElement;
+    input.value = name;
+    input.addEventListener("input", () => change(look, input.value.trim()));
+    input.addEventListener("keydown", (e) => e.key === "Enter" && input.blur());
     document.querySelectorAll<HTMLElement>(".hatPick").forEach((b) => press(b, () => pick({ hat: b.dataset.hat as Look["hat"] })));
+    document.querySelectorAll<HTMLElement>(".staffPick").forEach((b) => press(b, () => pick({ staff: b.dataset.staff as Look["staff"] })));
     press($("dress"), () => {
       $("start").classList.add("hidden");
       $("wardrobe").classList.remove("hidden");
@@ -54,6 +60,7 @@ export const ui = {
       open();
     });
     press($("dressDone"), () => {
+      input.blur();
       $("wardrobe").classList.add("hidden");
       $("start").classList.remove("hidden");
       done();
@@ -69,8 +76,12 @@ export const ui = {
     $("ride").classList.toggle("hidden", state === "hidden");
     $("ride").querySelector("small")!.textContent = state === "land" ? "⬇" : "⬆";
   },
-  grump(fraction: number) {
+  grump(fraction: number, color = "#e24b4a") {
     $("grumpFill").style.width = `${Math.round(fraction * 100)}%`;
+    $("grumpFill").style.background = color;
+  },
+  title(name: string) {
+    $("start").querySelector("h1")!.textContent = name ? `Wizard ${name}` : "Wizard and Dragons";
   },
   hearts(n: number) {
     $("hearts").textContent = "❤️".repeat(n) + "🤍".repeat(3 - n);

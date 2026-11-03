@@ -12,7 +12,7 @@ import {
 } from "./babylon";
 import { AREAS, type AreaId } from "./areas";
 import { applyLook, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spell } from "./characters";
-import { DRAGONS } from "./dragons";
+import { DRAGONS, WEAKNESS, type Element } from "./dragons";
 import { bolt, burst, trail, type Sparkle } from "./effects";
 import { PathGrid } from "./path";
 import { buildArea, setupLights, WORLD_RADIUS, type Area, type Star } from "./world";
@@ -26,6 +26,8 @@ const FLY_HEIGHT = 8;
 const FACE_OFF_DISTANCE = 7;
 const STRONG_HIT = 34; // three strong spells befriend a dragon
 const WEAK_HIT = 8;
+const FRIEND_STRONG_HIT = 10; // friends help, but he still does most of the work
+const FRIEND_WEAK_HIT = 3;
 const SPELL_COOLDOWN = 0.7;
 const SHIELD_TIME = 2.5;
 const HEARTS = 3;
@@ -105,6 +107,8 @@ let cooldownUntil = 0;
 let nextPuffAt = 0;
 let windup = false;
 let lockedHintUntil = 0;
+let helpAt = new Map<Dragon, number>(); // when each friend next puffs at the dragon he's facing
+let raisedUntil = new Map<Dragon, number>();
 let camCue: { until: number; radius: number; beta: number; alpha?: () => number } | null = null;
 
 // Each effect runs once per frame until it returns false.
@@ -146,11 +150,35 @@ function makeFriend(d: Dragon) {
   d.skin.emissiveColor = d.skin.diffuseColor.scale(0.2);
 }
 
+// The most recent friends walk with him; on the summit, every friend does.
 function followers(): Dragon[] {
-  return data.friends
-    .map((id) => dragons.find((d) => d.spec.id === id))
-    .filter((d): d is Dragon => !!d)
-    .slice(-MAX_FOLLOWERS);
+  const all = data.friends.map((id) => dragons.find((d) => d.spec.id === id)).filter((d): d is Dragon => !!d);
+  return currentArea === "summit" ? all : all.slice(-MAX_FOLLOWERS);
+}
+
+// A dragon with phases (the King) switches element each time it calms down another step.
+function phaseOf(d: Dragon): number {
+  const n = d.spec.phases?.length ?? 1;
+  return Math.min(n - 1, Math.floor(((100 - d.grump) / 100) * n));
+}
+
+function elementOf(d: Dragon): Element {
+  return d.spec.phases?.[phaseOf(d)] ?? d.spec.element;
+}
+
+function weaknessOf(d: Dragon): Element {
+  return d.spec.phases ? WEAKNESS[elementOf(d)] : d.spec.weakTo;
+}
+
+const BAR_COLORS: Record<Element, string> = { fire: "#d85a30", ice: "#378add", lightning: "#ef9f27" };
+
+function showGrump(d: Dragon) {
+  ui.grump(d.grump / 100, d.spec.phases ? BAR_COLORS[elementOf(d)] : undefined);
+}
+
+// Big dragons start the face-off further away, so the camera fits them.
+function reach(d: Dragon): number {
+  return FACE_OFF_DISTANCE + Math.max(0, (d.spec.size ?? 1) - 1.5) * 14;
 }
 
 // A dragon is in the scene if it lives in this area or is walking with him.
@@ -173,7 +201,7 @@ function pushOut(p: Vector3, radius: number) {
 }
 
 // Hides any tree standing between the camera and the wizard, so he never disappears behind one.
-function updateTrees() {
+function updateTrees(dt: number) {
   const cam = camera.position;
   const eye = wizardChest();
   const dx = eye.x - cam.x;
@@ -187,7 +215,10 @@ function updateTrees() {
       const off = Math.hypot(tree.x - (cam.x + dx * t), tree.z - (cam.z + dz * t));
       hide = off < tree.crown + 0.8 && sightHeight < tree.height;
     }
-    for (const m of tree.meshes) m.isVisible = !hide;
+    const goal = hide ? 0.2 : 1;
+    if (tree.fade === goal) continue;
+    tree.fade = goal > tree.fade ? Math.min(goal, tree.fade + dt * 4) : Math.max(goal, tree.fade - dt * 4);
+    tree.setFade(tree.fade);
   }
 }
 
@@ -281,20 +312,36 @@ function startBattle(d: Dragon) {
   marker.isVisible = false;
   nextPuffAt = now + 4;
   windup = false;
+  const big = Math.max(0, (d.spec.size ?? 1) - 1.5);
   camCue = {
     until: now + 1.2,
-    radius: 17,
+    radius: 17 + big * 20,
     beta: 1.15,
     alpha: () => Math.atan2(wizard.root.position.z - d.root.position.z, wizard.root.position.x - d.root.position.x),
   };
-  ui.grump(d.grump / 100);
+  showGrump(d);
   ui.battle(true);
   setBattleMusic(true);
   sfx.roar();
+  const helpers = followers();
+  const spacing = 1.1 * Math.max(1, helpers.length / 3);
+  helpAt = new Map(helpers.map((f, i) => [f, now + 2.5 + i * spacing]));
+  if (d.spec.phases) {
+    tint(d);
+    // Every friend swoops down from the sky to help.
+    helpers.forEach((f) => (f.root.position.y = 12));
+    sfx.whoosh();
+    ui.banner("👑", 2);
+  }
+}
+
+function tint(d: Dragon) {
+  d.skin.emissiveColor = SPELL_COLORS[elementOf(d)].scale(0.35);
 }
 
 function endBattle() {
   foe = null;
+  helpAt.clear();
   windup = false;
   ui.battle(false);
   setBattleMusic(false);
@@ -314,30 +361,54 @@ function cast(spell: Spell) {
   const from = wizard.crystal.getAbsolutePosition().clone();
   if (spell === "lightning") {
     bolt(scene, from, headOf(target));
-    setTimeout(() => hit(target, spell), 120);
+    setTimeout(() => hit(target, spell, false), 120);
     return;
   }
-  orb(from, () => headOf(target), spell, 0.45, () => hit(target, spell));
+  orb(from, () => headOf(target), spell, 0.45, () => hit(target, spell, false));
 }
 
-function hit(target: Dragon, spell: Spell) {
+function hit(target: Dragon, spell: Spell, byFriend: boolean) {
   if (foe !== target) return;
-  const strong = spell === target.spec.weakTo;
-  target.grump = Math.max(0, target.grump - (strong ? STRONG_HIT : WEAK_HIT));
+  const strong = spell === weaknessOf(target);
+  // Tougher dragons take more hits: the same three-hit damage, spread over their hits.
+  // A crowd of friends shares the help, so he still does the work.
+  const scale = (3 / (target.spec.hits ?? 3)) * (byFriend ? Math.min(1, 3 / helpAt.size) : 1);
+  const damage = byFriend ? (strong ? FRIEND_STRONG_HIT : FRIEND_WEAK_HIT) : strong ? STRONG_HIT : WEAK_HIT;
+  const phase = phaseOf(target);
+  target.grump = Math.max(0, target.grump - damage * scale);
   target.flinch = strong ? 1 : 0.3;
   burst(scene, headOf(target), spell, strong ? 70 : 15);
-  if (strong) {
+  if (byFriend) sfx.weak();
+  else if (strong) {
     shake = 0.5;
     sfx.strong();
   } else {
     sfx.weak();
   }
-  ui.grump(target.grump / 100);
+  showGrump(target);
   if (target.grump === 0) befriend(target);
+  else if (phaseOf(target) !== phase) newPhase(target);
+}
+
+// The King changes element: a roar, a flash of the new color, and a moment before it puffs again.
+function newPhase(d: Dragon) {
+  tint(d);
+  sfx.roar();
+  shake = 0.6;
+  burst(scene, headOf(d), elementOf(d), 90);
+  windup = false;
+  nextPuffAt = Math.max(nextPuffAt, now + 2.5);
+}
+
+function friendHelp(f: Dragon, target: Dragon) {
+  raisedUntil.set(f, now + 0.6);
+  const kind = f.spec.phases ? elementOf(f) : f.spec.element;
+  orb(headOf(f), () => headOf(target), kind, 0.7, () => hit(target, kind, true));
 }
 
 function befriend(d: Dragon) {
   makeFriend(d);
+  helpAt.clear();
   data.friends.push(d.spec.id);
   save(data);
   endBattle();
@@ -361,7 +432,7 @@ function befriend(d: Dragon) {
 }
 
 function dragonPuff(d: Dragon) {
-  orb(headOf(d), wizardChest, d.spec.element, 0.8, () => {
+  orb(headOf(d), wizardChest, elementOf(d), 0.8, () => {
     if (foe !== d) return;
     if (now < shieldUntil) {
       sfx.block();
@@ -386,6 +457,7 @@ function nap(d: Dragon) {
     const [x, z] = AREAS[currentArea].spawn;
     wizard.root.position.set(x, 0, z);
     d.grump = 100;
+    if (d.spec.phases) tint(d);
     hearts = HEARTS;
     ui.hearts(hearts);
     mode = "explore";
@@ -456,6 +528,7 @@ function updateWizard(dt: number) {
   wizard.body.rotation.z = Math.sin(now * 30) * 0.25 * wobble;
   shieldBubble.isVisible = now < shieldUntil;
   marker.scaling.setAll(1 + Math.sin(now * 6) * 0.1);
+  wizard.crystal.rotation.y += dt * 1.5;
   if (riding) {
     wizard.body.position.y = Math.sin(now * 3) * 0.05;
     return;
@@ -506,7 +579,7 @@ function updateWizard(dt: number) {
     }
   }
   for (const d of dragons) {
-    if (d.root.isEnabled() && !d.friend && now > d.calmUntil && flatDistance(pos, d.root.position) < FACE_OFF_DISTANCE) {
+    if (d.root.isEnabled() && !d.friend && now > d.calmUntil && flatDistance(pos, d.root.position) < reach(d)) {
       startBattle(d);
       return;
     }
@@ -554,9 +627,10 @@ function updateDragons(dt: number) {
     const i = walking.indexOf(d);
     if (i >= 0) {
       // Off to his sides, so they never stand between him and the camera; further out during a face-off, to leave the view clear.
+      const rank = Math.floor(i / 2);
       const goal = foe
-        ? leader.position.add(side.scale(i % 2 ? 10 : -10)).add(back.scale(i > 1 ? -4 : 2))
-        : leader.position.add(back.scale(2 + i * 2)).add(side.scale(i % 2 ? 5.5 : -5.5));
+        ? leader.position.add(side.scale((i % 2 ? 1 : -1) * (10 + rank * 3))).add(back.scale(2 - rank * 3))
+        : leader.position.add(back.scale(2 + rank * 2)).add(side.scale((i % 2 ? 1 : -1) * (5.5 + rank * 2.5)));
       const to = goal.subtract(d.root.position);
       to.y = 0;
       const dist = to.length();
@@ -567,6 +641,7 @@ function updateDragons(dt: number) {
       }
       d.root.position.y += ((riding ? FLY_HEIGHT : 0) - d.root.position.y) * Math.min(1, dt * 1.5);
       if (d.root.position.y > 0.5) moving = true;
+      if (foe) turnToward(d.root, foe.root.position, dt, 4);
     } else if (d === foe) {
       turnToward(d.root, wizard.root.position, dt, 5);
     }
@@ -577,7 +652,7 @@ function updateDragons(dt: number) {
     d.wings[1].rotation.z = flap;
     d.flinch = Math.max(0, d.flinch - dt * 2.5);
     d.root.rotation.z = Math.sin(now * 40) * 0.06 * d.flinch;
-    const lookUp = d === foe && windup ? -0.5 : 0;
+    const lookUp = (d === foe && windup) || (raisedUntil.get(d) ?? 0) > now ? -0.5 : 0;
     d.head.rotation.x += (lookUp - d.head.rotation.x) * Math.min(1, dt * 8);
     d.head.position.y = d.headBaseY + Math.sin(d.phase * 0.5) * 0.06;
   }
@@ -585,6 +660,12 @@ function updateDragons(dt: number) {
 
 function updateBattle() {
   if (mode !== "battle" || !foe) return;
+  // Friends take turns puffing; with a crowd of them (the King's battle) each puffs less often.
+  for (const [f, at] of helpAt) {
+    if (now < at || f.root.position.y > 1) continue;
+    friendHelp(f, foe);
+    helpAt.set(f, now + (4 + Math.random() * 2) * Math.max(1, helpAt.size / 3));
+  }
   // The dragon looks up for a moment before it puffs, so he has time to tap the shield.
   if (!windup && now > nextPuffAt - 0.8) {
     windup = true;
@@ -608,7 +689,7 @@ function updateWorld(dt: number) {
 function updateCamera(dt: number) {
   const w = wizard.root.position;
   let goal: Vector3;
-  if (mode === "battle" && foe) goal = Vector3.Center(w, foe.root.position).add(new Vector3(0, 2.5, 0));
+  if (mode === "battle" && foe) goal = Vector3.Center(w, foe.root.position).add(new Vector3(0, 2.5 * Math.max(1, (foe.spec.size ?? 1) * 0.8), 0));
   else if (riding) goal = riding.root.position.add(new Vector3(0, 3, 0));
   else goal = w.add(new Vector3(0, mode === "wardrobe" ? 1.4 : 1.5, 0));
   Vector3.LerpToRef(camera.target, goal, Math.min(1, dt * 4), camera.target);
@@ -624,7 +705,8 @@ function updateCamera(dt: number) {
     camera.beta += (camCue.beta - camera.beta) * Math.min(1, dt * 3);
   }
   shake = Math.max(0, shake - dt * 1.5);
-  camera.targetScreenOffset.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  // While dressing, he stands left of center, clear of the picker on the right.
+  camera.targetScreenOffset.set((mode === "wardrobe" ? -1.8 : 0) + (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
 }
 
 // A quick touch that barely moves is a tap to walk or fly; anything else turns or zooms the camera.
@@ -650,12 +732,22 @@ ui.onStart(() => {
 });
 ui.onWardrobe(
   data.look,
-  () => (mode = "wardrobe"),
-  (look) => {
+  data.name,
+  () => {
+    // His friends stand around the spawn and would block the close-up, so they step out while he dresses.
+    mode = "wardrobe";
+    followers().forEach((d) => d.root.setEnabled(false));
+  },
+  (look, name) => {
     applyLook(wizard, look);
+    data.name = name;
+    ui.title(name);
     save(data);
   },
-  () => (mode = "title"),
+  () => {
+    mode = "title";
+    updatePresence();
+  },
 );
 ui.onSpell(cast);
 ui.onRun(walkAway);
@@ -667,6 +759,7 @@ ui.onMute(() => {
   ui.muted(data.muted);
   save(data);
 });
+ui.title(data.name);
 ui.hearts(hearts);
 ui.friends(data.friends.length, dragons.length);
 ui.stars(data.stars.length);
@@ -683,7 +776,7 @@ scene.onBeforeRenderObservable.add(() => {
   updateBattle();
   updateWorld(dt);
   updateCamera(dt);
-  updateTrees();
+  updateTrees(dt);
   ui.ride(mode !== "explore" ? "hidden" : riding ? "land" : followers().length ? "mount" : "hidden");
   for (let i = effects.length - 1; i >= 0; i--) if (!effects[i](dt)) effects.splice(i, 1);
 });

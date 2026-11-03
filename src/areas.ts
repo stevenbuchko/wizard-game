@@ -1,4 +1,4 @@
-export type AreaId = "forest" | "snow" | "volcano";
+export type AreaId = "forest" | "snow" | "volcano" | "summit";
 
 export interface AreaSpec {
   id: AreaId;
@@ -34,6 +34,7 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     portals: [
       { to: "snow", at: [-36, 32], needs: 2 },
       { to: "volcano", at: [36, 32], needs: 4 },
+      { to: "summit", at: [0, -40], needs: 8 },
     ],
     stars: [[10, 9, 10], [-15, 10, -8], [20, 9, -28], [-30, 11, 20], [30, 9, 12]],
   },
@@ -69,5 +70,21 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     spawn: [0, -34],
     portals: [{ to: "forest", at: [0, -40], needs: 0 }],
     stars: [[0, 11, 0], [-26, 9, -22], [26, 10, -20], [-20, 10, 28], [22, 11, 30]],
+  },
+  summit: {
+    id: "summit",
+    sky: "#3a3470",
+    ground: "#8a86ab",
+    trunk: "#5c5880",
+    crown: "#b49bff",
+    dead: true,
+    trees: 45,
+    rock: "#c8c4e0",
+    sprinkle: "#ffe28a",
+    sprinkleGlows: true,
+    portalColor: "#ffd34d",
+    spawn: [0, -34],
+    portals: [{ to: "forest", at: [0, -40], needs: 0 }],
+    stars: [[0, 14, -8], [-26, 10, -18], [26, 10, -18], [-22, 11, 28], [22, 11, 28]],
   },
 };

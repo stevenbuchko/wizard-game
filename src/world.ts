@@ -5,6 +5,7 @@ import {
   DirectionalLight,
   DynamicTexture,
   HemisphericLight,
+  InstancedMesh,
   Mesh,
   MeshBuilder,
   Scene,
@@ -27,6 +28,8 @@ export interface Tree extends Obstacle {
   crown: number; // crown radius, for hiding it from the camera
   height: number;
   meshes: AbstractMesh[];
+  fade: number; // 1 is solid
+  setFade(alpha: number): void;
 }
 
 export interface Portal {
@@ -108,6 +111,32 @@ function drawSign(texture: DynamicTexture, needs: number, friends: number) {
   texture.update();
 }
 
+// Instances share their source's visibility, so a fading tree swaps its instances for copies of its own.
+function fader(meshes: AbstractMesh[], root: TransformNode): (alpha: number) => void {
+  let ghosts: AbstractMesh[] | null = null;
+  return (alpha) => {
+    const solid = alpha >= 0.99;
+    ghosts ??= meshes.map((m) => {
+      if (!(m instanceof InstancedMesh)) return m;
+      const g = m.sourceMesh.clone("ghost", root, true);
+      g.position.copyFrom(m.position);
+      g.scaling.copyFrom(m.scaling);
+      g.rotation.copyFrom(m.rotation);
+      g.isPickable = false;
+      return g;
+    });
+    meshes.forEach((m, i) => {
+      if (ghosts![i] === m) {
+        m.visibility = alpha;
+        return;
+      }
+      m.isVisible = solid;
+      ghosts![i].isVisible = !solid;
+      ghosts![i].visibility = alpha;
+    });
+  };
+}
+
 export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator, keepClear: Vector3[], collected: string[]): Area {
   const root = new TransformNode(spec.id, scene);
   const sky = hex(spec.sky);
@@ -172,7 +201,7 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
       meshes.push(k);
     }
     meshes.forEach((m) => shadows.addShadowCaster(m));
-    const tree = { x, z, radius: 0.7 * s, crown: (spec.dead ? 0.6 : 1.6) * s, height: (spec.dead ? 5.1 : 6.6) * s, meshes };
+    const tree = { x, z, radius: 0.7 * s, crown: (spec.dead ? 0.6 : 1.6) * s, height: (spec.dead ? 5.1 : 6.6) * s, meshes, fade: 1, setFade: fader(meshes, root) };
     trees.push(tree);
     obstacles.push(tree);
     placed++;
@@ -247,7 +276,7 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
     disc.material = swirl;
     parts.push(disc);
     // Listed with the trees so it hides when it stands between the camera and the wizard.
-    trees.push({ x, z, radius: 0, crown: 2.8, height: 5.6, meshes: parts });
+    trees.push({ x, z, radius: 0, crown: 2.8, height: 5.6, meshes: parts, fade: 1, setFade: fader(parts, root) });
 
     const signTexture = new DynamicTexture("sign", { width: 512, height: 128 }, scene, false);
     signTexture.hasAlpha = true;

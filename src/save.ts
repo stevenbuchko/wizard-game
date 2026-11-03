@@ -4,6 +4,7 @@ export interface Look {
   robe: string;
   crystal: string;
   hat: "hat" | "hood";
+  staff: "wood" | "gold" | "shard";
 }
 
 export interface SaveData {
@@ -11,12 +12,13 @@ export interface SaveData {
   stars: string[];
   look: Look;
   muted: boolean;
+  name: string; // shown on the title screen
 }
 
 const KEY = "wizard-game-v1";
 
 function defaults(): SaveData {
-  return { friends: [], stars: [], look: { robe: "#29459e", crystal: "#66e6ff", hat: "hood" }, muted: false };
+  return { friends: [], stars: [], look: { robe: "#29459e", crystal: "#66e6ff", hat: "hood", staff: "wood" }, muted: false, name: "" };
 }
 
 export function load(): SaveData {

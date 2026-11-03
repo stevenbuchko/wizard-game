@@ -2,9 +2,10 @@
 
 An iPad game for a 7-year-old. Touch the ground to walk; the wizard finds his way around trees. Walk up to a dragon and a face-off starts. Each dragon is weak to one spell, and three of those make it a friend. The shield blocks the dragon's puff, and losing all three hearts is a nap back at the start, never a game over.
 
-- **Friends** follow him (the three most recent; the rest wait at home) and he can ride one with the dragon button. Flying is how he reaches the stars floating over each area.
-- **Areas**: the forest, then a snowy mountain (opens at 2 friends) and a volcano (opens at 4), through portals. Locked portals show how many friends they need.
-- **Saved progress**: friends, stars, his wizard's look and the sound setting stay on the iPad between visits.
+- **Friends** follow him (the three most recent; the rest wait at home) and he can ride one with the dragon button. Flying is how he reaches the stars floating over each area. In a face-off, the friends with him puff at the dragon too, weaker than his spells.
+- **Areas**: the forest, then a snowy mountain (opens at 2 friends) and a volcano (opens at 4), through portals. Locked portals show how many friends they need. At 8 friends the summit opens: the Dragon King switches from fire to ice to lightning as it calms down (the bar turns that color), takes two strong hits per element, and every friend flies in to help. Befriending it is the ending.
+- **His wizard**: robe, crystal, staff, hood or hat, and his name, which titles the start screen.
+- **Saved progress**: friends, stars, his wizard's look and name, and the sound setting stay on the iPad between visits.
 - **His wizard**: the 🧙 button on the title screen picks the robe, crystal and hat.
 
 Babylon.js, TypeScript and Vite. The characters are placeholder primitives until the rigged 3D models are bought. Everything imports Babylon through `src/babylon.ts`, which keeps the download to about 1.4 MB.

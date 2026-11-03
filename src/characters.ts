@@ -32,14 +32,22 @@ function part(mesh: Mesh, parent: TransformNode, mat: StandardMaterial, pos: Vec
 export interface Wizard {
   root: TransformNode;
   body: TransformNode;
-  crystal: Mesh;
+  crystal: TransformNode; // the staff's tip, where spells start
   meshes: Mesh[];
   robe: StandardMaterial;
   trim: StandardMaterial;
   glow: StandardMaterial;
+  wood: StandardMaterial;
   hat: Mesh[];
   hood: Mesh[];
+  tips: Record<Look["staff"], Mesh>;
 }
+
+const STAFF_COLORS: Record<Look["staff"], Color3> = {
+  wood: new Color3(0.45, 0.28, 0.12),
+  gold: new Color3(0.85, 0.65, 0.2),
+  shard: new Color3(0.88, 0.86, 0.94),
+};
 
 export function makeWizard(scene: Scene): Wizard {
   const root = new TransformNode("wizard", scene);
@@ -63,9 +71,16 @@ export function makeWizard(scene: Scene): Wizard {
   const cone = part(MeshBuilder.CreateCylinder("hat", { height: 1.3, diameterTop: 0, diameterBottom: 0.62, tessellation: 20 }, scene), body, trim, new Vector3(0, 2.5, -0.05));
   cone.rotation.x = -0.15;
   const hat = [cone, part(MeshBuilder.CreateCylinder("brim", { height: 0.05, diameter: 1.1, tessellation: 24 }, scene), body, trim, new Vector3(0, 1.88, 0))];
-  const crystal = part(MeshBuilder.CreateSphere("crystal", { diameter: 0.26 }, scene), body, glow, new Vector3(0.6, 2.05, 0.15));
-  meshes.push(crystal, ...hood, ...hat);
-  return { root, body, crystal, meshes, robe, trim, glow, hat, hood };
+  const crystal = new TransformNode("tip", scene);
+  crystal.parent = body;
+  crystal.position = new Vector3(0.6, 2.05, 0.15);
+  const tips = {
+    wood: part(MeshBuilder.CreateSphere("orb", { diameter: 0.26 }, scene), crystal, glow, Vector3.Zero()),
+    gold: part(MeshBuilder.CreatePolyhedron("star", { type: 1, size: 0.2 }, scene), crystal, glow, new Vector3(0, 0.05, 0)),
+    shard: part(MeshBuilder.CreatePolyhedron("shard", { type: 1, sizeX: 0.12, sizeY: 0.34, sizeZ: 0.12 }, scene), crystal, glow, new Vector3(0, 0.15, 0)),
+  };
+  meshes.push(...Object.values(tips), ...hood, ...hat);
+  return { root, body, crystal, meshes, robe, trim, glow, wood, hat, hood, tips };
 }
 
 export function applyLook(w: Wizard, look: Look) {
@@ -77,6 +92,8 @@ export function applyLook(w: Wizard, look: Look) {
   w.glow.emissiveColor = crystal.scale(0.8);
   w.hat.forEach((m) => (m.isVisible = look.hat === "hat"));
   w.hood.forEach((m) => (m.isVisible = look.hat === "hood"));
+  w.wood.diffuseColor = STAFF_COLORS[look.staff];
+  for (const [kind, tip] of Object.entries(w.tips)) tip.isVisible = kind === look.staff;
 }
 
 export interface Dragon {
@@ -137,6 +154,14 @@ export function makeDragon(scene: Scene, spec: DragonSpec): Dragon {
     add(MeshBuilder.CreateSphere("eye", { diameter: 0.2 }, scene), eye, new Vector3(x, 0.15, 0.35), head);
     const h = add(MeshBuilder.CreateCylinder("horn", { height: hornLength, diameterTop: 0, diameterBottom: 0.2 }, scene), horn, new Vector3(x * 0.8, 0.1 + hornLength / 2, -0.3), head);
     h.rotation.x = -0.7;
+  }
+  if (spec.crown) {
+    const gold = material(scene, new Color3(1, 0.8, 0.25), new Color3(0.35, 0.25, 0.05));
+    add(MeshBuilder.CreateTorus("band", { diameter: 0.7, thickness: 0.1, tessellation: 24 }, scene), gold, new Vector3(0, 0.42, -0.05), head);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      add(MeshBuilder.CreateCylinder("point", { height: 0.32, diameterTop: 0, diameterBottom: 0.14, tessellation: 6 }, scene), gold, new Vector3(Math.sin(a) * 0.33, 0.58, Math.cos(a) * 0.33 - 0.05), head);
+    }
   }
 
   const wings = [-1, 1].map((side) => {
