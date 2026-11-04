@@ -34,6 +34,9 @@ const HEARTS = 3;
 const MAX_FOLLOWERS = 3; // the most recent friends walk with him; the rest wait at home
 const WIZARD_RADIUS = 0.4;
 const SADDLE = new Vector3(0, 2.55, -0.3);
+const PET_SIZE = 0.4; // friends walking with him shrink to pets, so they don't fill the screen
+const PET_HEIGHT = 0.7;
+const GROW_TIME = 0.5;
 
 const data = load();
 
@@ -117,6 +120,7 @@ let lockedHintUntil = 0;
 const greetedAt = new Map<Dragon, number>();
 let helpAt = new Map<Dragon, number>(); // when each friend next puffs at the dragon he's facing
 let raisedUntil = new Map<Dragon, number>();
+const petness = new Map<Dragon, number>(); // 0 is full size, 1 is pet size
 let camCue: { until: number; radius: number; beta: number; alpha?: () => number } | null = null;
 
 // Each effect runs once per frame until it returns false.
@@ -251,15 +255,17 @@ function enterArea(id: AreaId, from?: AreaId) {
   const walking = followers();
   for (const d of dragons) {
     if (walking.includes(d)) continue;
+    petness.set(d, 0);
+    d.root.scaling.setAll(d.fullSize);
     d.root.position.set(d.spec.home[0], 0, d.spec.home[1]);
     d.root.rotation.y = yawTo(d.root.position, spawn);
   }
   const yaw = wizard.root.rotation.y;
-  const ahead = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-  const side = new Vector3(ahead.z, 0, -ahead.x);
   walking.forEach((d, i) => {
-    // Beside him and a little ahead, never between him and the camera.
-    d.root.position.copyFrom(spawn).addInPlace(ahead.scale(2 + i * 2)).addInPlace(side.scale(i % 2 ? 5 : -5));
+    // A friend that just joined him arrives as a pet; one already walking with him stays one.
+    if (!petness.has(d)) petness.set(d, 1);
+    updateSize(d, true, 0);
+    d.root.position.copyFrom(followSpot(i, wizard.root));
     d.root.rotation.y = yaw;
   });
   updatePresence();
@@ -543,6 +549,8 @@ function updateWizard(dt: number) {
   marker.scaling.setAll(1 + Math.sin(now * 6) * 0.1);
   wizard.crystal.rotation.y += dt * 1.5;
   if (riding) {
+    // The dragon grows under him, so his size follows its scale to stay the same in the world.
+    wizard.root.scaling.setAll(1 / riding.root.scaling.x);
     wizard.body.position.y = Math.sin(now * 3) * 0.05;
     return;
   }
@@ -643,30 +651,49 @@ function updateRide(dt: number) {
   for (const s of area.stars) if (!s.collected && Vector3.Distance(body, s.mesh.position) < 3.5) collect(s);
 }
 
+// Where the i-th friend walking with him goes, never between him and the camera: as pets, beside his shoulders;
+// in the air, clear of the wings of the dragon he rides; in a face-off, further out to leave the view clear.
+function followSpot(i: number, leader: TransformNode): Vector3 {
+  const back = new Vector3(Math.sin(leader.rotation.y), 0, Math.cos(leader.rotation.y)).scale(-1);
+  const side = new Vector3(back.z, 0, -back.x).scale(i % 2 ? 1 : -1);
+  const rank = Math.floor(i / 2);
+  if (foe) return leader.position.add(side.scale(10 + rank * 3)).add(back.scale(2 - rank * 3));
+  if (riding) return leader.position.add(back.scale(2 + rank * 2)).add(side.scale(5.5 + rank * 2.5));
+  // Pets go by the camera, not his heading: off his left and right on screen, however he turns.
+  const w = wizard.root.position;
+  const view = new Vector3(w.x - camera.position.x, 0, w.z - camera.position.z).normalize();
+  const right = new Vector3(view.z, 0, -view.x).scale(i % 2 ? -1 : 1);
+  return w.add(right.scale(2.3 + rank * 1.4)).add(view.scale(0.6 + rank * 1.2)).add(new Vector3(0, PET_HEIGHT + rank * 0.8, 0));
+}
+
+// Friends walking with him are pets; the one he rides, friends in a face-off and friends at home are full size.
+function updateSize(d: Dragon, pet: boolean, dt: number) {
+  const p = Math.max(0, Math.min(1, (petness.get(d) ?? 0) + (pet ? dt : -dt) / GROW_TIME));
+  petness.set(d, p);
+  const ease = p * p * (3 - 2 * p);
+  d.root.scaling.setAll(d.fullSize * (1 - (1 - PET_SIZE) * ease));
+}
+
 function updateDragons(dt: number) {
   const leader = riding ? riding.root : wizard.root;
-  const back = new Vector3(Math.sin(leader.rotation.y), 0, Math.cos(leader.rotation.y)).scale(-1);
-  const side = new Vector3(back.z, 0, -back.x);
   const walking = followers().filter((d) => d !== riding);
   for (const d of dragons) {
     if (!d.root.isEnabled()) continue;
     let moving = d === riding && !!walkTarget;
     const i = walking.indexOf(d);
+    updateSize(d, i >= 0 && !foe, dt);
     if (i >= 0) {
-      // Off to his sides, so they never stand between him and the camera; further out during a face-off, to leave the view clear.
-      const rank = Math.floor(i / 2);
-      const goal = foe
-        ? leader.position.add(side.scale((i % 2 ? 1 : -1) * (10 + rank * 3))).add(back.scale(2 - rank * 3))
-        : leader.position.add(back.scale(2 + rank * 2)).add(side.scale((i % 2 ? 1 : -1) * (5.5 + rank * 2.5)));
+      const goal = followSpot(i, leader);
       const to = goal.subtract(d.root.position);
       to.y = 0;
       const dist = to.length();
       if (dist > 0.8) {
         moving = true;
-        d.root.position.addInPlace(to.normalize().scale(Math.min(dist, Math.min(dist * 1.5, riding ? FLY_SPEED : 8) * dt)));
+        d.root.position.addInPlace(to.normalize().scale(Math.min(dist, Math.min(dist * (riding || foe ? 1.5 : 3), riding ? FLY_SPEED : 8) * dt)));
         turnToward(d.root, goal, dt, 4);
       }
-      d.root.position.y += ((riding ? FLY_HEIGHT : 0) - d.root.position.y) * Math.min(1, dt * 1.5);
+      const height = riding ? FLY_HEIGHT : foe ? 0 : goal.y + Math.sin(d.phase * 0.5) * 0.12;
+      d.root.position.y += (height - d.root.position.y) * Math.min(1, dt * 1.5);
       if (d.root.position.y > 0.5) moving = true;
       if (foe) turnToward(d.root, foe.root.position, dt, 4);
     } else if (d === foe) {

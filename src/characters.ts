@@ -104,6 +104,7 @@ export interface Dragon {
   meshes: Mesh[];
   skin: StandardMaterial;
   heart: Mesh; // floats over a friend, so a friend waiting at home never looks wild
+  fullSize: number; // the root's scaling at full size; friends following him shrink below it
   headBaseY: number;
   grump: number; // 100 is grumpy, 0 is a friend
   friend: boolean;
@@ -116,7 +117,8 @@ export function makeDragon(scene: Scene, spec: DragonSpec): Dragon {
   const color = Color3.FromHexString(spec.color);
   const root = new TransformNode(spec.id, scene);
   root.position.set(spec.home[0], 0, spec.home[1]);
-  root.scaling.setAll(1.3 * (spec.size ?? 1));
+  const fullSize = 1.3 * (spec.size ?? 1);
+  root.scaling.setAll(fullSize);
   const skin = material(scene, color);
   const belly = material(scene, Color3.FromHexString(spec.belly));
   const wingMat = material(scene, spec.wings ? Color3.FromHexString(spec.wings) : color.scale(0.75));
@@ -196,7 +198,7 @@ export function makeDragon(scene: Scene, spec: DragonSpec): Dragon {
   heart.isVisible = false;
 
   return {
-    spec, root, head, wings, meshes, skin, heart,
+    spec, root, head, wings, meshes, skin, heart, fullSize,
     headBaseY: head.position.y,
     grump: 100,
     friend: false,
