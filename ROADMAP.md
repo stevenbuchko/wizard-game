@@ -58,7 +58,9 @@ The size lives on `d.root.scaling`, which is `1.3 × spec.size` today (`makeDrag
 
 ## 4. Dragons left in each world
 
-**Status:** ready
+**Status:** done 2026-11-04 (`ae4bc3f`)
+
+**As built:** the row sits inside the top of each portal's ring, not over it: the play camera looks down, so anything above the ring is off the top of the screen until he's far away, and the friends-needed sign there is mostly unseen too. The row is dark and edged in the destination's portal color, each dragon tinted its own body color; one still to find is a dim shadow. In the corner it sits under the sound button. The drawing is one function, `drawTally` in `src/tally.ts`, on a plain canvas, so item 5 can put it on the region lines. Signs carry `metadata.sign` so the glow layer treats them as blockers; before, the white sign bloomed into a blob.
 
 **Why:** Steven, 2026-11-04: a marker for how many dragons are left at each level. Nothing in the game shows it today, so he can't tell whether a world is finished without walking all of it. A full map was ruled out for now: item 5 replaces the portals with one map, so a map of the portal layout would be thrown away, while these markers carry over.
 
@@ -79,7 +81,7 @@ Update the rows when a face-off is won and when a save loads.
 
 **The middle:** Steven, 2026-11-04: "where the dragons are kept and/or a mix of all world areas". So the middle region is the dragon home (item 6: the meadow with straw beds, tapping to choose followers), with its edges blending into each neighbouring world's ground and trees. He said "and/or", so either half alone is acceptable if both together don't look right.
 
-**Build:** replace the portal areas (`src/areas.ts`, `buildArea` in `src/world.ts`, `enterArea` and `travel` in `src/main.ts`) with one map holding every region. The dragons-left rows (item 4) move from the portals to each region's line. Each region keeps its own ground color, trees, sprinkles and dragons. Locked regions (2, 4 and 8 friends today) need a barrier at their line, showing the friends it needs the way locked portal signs do now. Sky and fog change as he crosses into a region. Collected stars keep their ids, so saved progress survives.
+**Build:** replace the portal areas (`src/areas.ts`, `buildArea` in `src/world.ts`, `enterArea` and `travel` in `src/main.ts`) with one map holding every region. The dragons-left rows (item 4) move from the portals to each region's line: `drawTally` in `src/tally.ts` draws one onto any canvas. Each region keeps its own ground color, trees, sprinkles and dragons. Locked regions (2, 4 and 8 friends today) need a barrier at their line, showing the friends it needs the way locked portal signs do now. Sky and fog change as he crosses into a region. Collected stars keep their ids, so saved progress survives.
 
 Things to watch:
 - `PathGrid` covers ±60 today and needs to cover the whole map.
@@ -110,6 +112,7 @@ Things to watch:
 
 ## Done
 
+- 2026-11-04: dragons left in each world: a row of dragons in their own colors inside each portal's ring and in the corner, lit for each friend, gold with a star when a world is done (`ae4bc3f`).
 - 2026-11-04: dragon home: friends not following him wait on straw beds in a meadow through a pink portal in the forest, and tapping one there brings it along or sends it back; the choice is saved (`e45c573`).
 - 2026-11-04: pet-size friends: friends following him shrink to 40% and hover beside his shoulders, full size when ridden and in face-offs (`aa5d443`).
 - 2026-11-04: look pass for the world: film finish (ACES, bloom, MSAA, vignette, grade per area), sky with sun and mountains, painted ground with tufts, layered tinted swaying trees (`a501268`).
