@@ -650,14 +650,15 @@ function updateWizard(dt: number) {
       ui.banner("🔒", 1.2);
     }
   }
+  const pets = followers();
   for (const d of dragons) {
     if (!d.root.isEnabled() || flatDistance(pos, d.root.position) >= reach(d)) continue;
     if (!d.friend && now > d.calmUntil) {
       startBattle(d);
       return;
     }
-    // A friend waiting at home says hello instead, so he knows it's already his.
-    if (d.friend && now > (greetedAt.get(d) ?? 0)) {
+    // A friend waiting at home says hello instead, so he knows it's already his. Pets beside him would greet him nonstop.
+    if (d.friend && !pets.includes(d) && now > (greetedAt.get(d) ?? 0)) {
       greetedAt.set(d, now + 8);
       d.flinch = 0.6;
       burst(scene, headOf(d), "gold", 40);
