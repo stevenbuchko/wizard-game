@@ -6,7 +6,7 @@ New ideas, his or Steven's, go in as a new item where they rank. Write each one 
 
 ## 1. Look pass: lighting and the world
 
-**Status:** next
+**Status:** done 2026-11-04 (`a501268`)
 
 **Why:** he wants it to look better (Steven, 2026-11-04). This pass changes every frame and none of it is replaced if real models are bought later, so it goes first.
 
@@ -67,6 +67,7 @@ Things to watch:
 - The shadow map is 1024 px over a much bigger area.
 - Every dragon is in the scene at once, so `updatePresence` changes.
 - The map is about four times the area, so check the frame rate in the browser before calling it done.
+- Sky, mountains, fog and the film grade are set per area on arrival (`buildSky` and `setupFilm` in `src/world.ts`, values in `src/areas.ts`). One map needs them blended as he crosses a line, and the ground texture and tufts painted per region.
 
 **Done when:** he can walk from the middle into every unlocked world without a loading fade, locked lines stop him and say why, the King still needs 8 friends, an old save loads with its friends and stars, and the frame rate holds.
 
@@ -82,6 +83,7 @@ Things to watch:
 
 ## Done
 
+- 2026-11-04: look pass for the world: film finish (ACES, bloom, MSAA, vignette, grade per area), sky with sun and mountains, painted ground with tufts, layered tinted swaying trees (`a501268`).
 - 2026-11-03: Dragon King finale, friends help in face-offs, staff and name picker, fading trees (`bf2f649`).
 - 2026-11-03: friends at home wear a heart and greet him; flying up to a wild dragon lands him into the face-off (`892d152`).
 
