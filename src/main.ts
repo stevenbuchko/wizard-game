@@ -2,6 +2,7 @@ import {
   type AbstractMesh,
   ArcRotateCamera,
   Color3,
+  type DirectionalLight,
   Engine,
   GlowLayer,
   MeshBuilder,
@@ -15,8 +16,9 @@ import { AREAS, type AreaId } from "./areas";
 import { applyLook, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spell } from "./characters";
 import { DRAGONS, WEAKNESS, type Element } from "./dragons";
 import { bolt, burst, trail, type Sparkle } from "./effects";
+import { MAP_RADIUS, regionAt, spawnOf, toMap, WORLDS } from "./map";
 import { PathGrid } from "./path";
-import { buildArea, setupFilm, setupLights, WORLD_RADIUS, type Area, type Star } from "./world";
+import { buildWorld, setupFilm, setupLights, type Star, type Weights, type World } from "./world";
 import { setBattleMusic, setMuted, sfx, startMusic, unlockAudio } from "./audio";
 import { load, MAX_FOLLOWERS, save } from "./save";
 import { ui } from "./ui";
@@ -65,16 +67,18 @@ const dragons = DRAGONS.map((spec) => {
   return d;
 });
 
-// Each friend's bed at home: a ring open toward where he walks in, with the biggest at the back so it hides no one.
+// Each friend's bed at home: a ring round the middle of the map, each bed between two ways out so none is in his path,
+// and the biggest in the centre.
 const beds = new Map<Dragon, Vector3>();
 {
   const ring = dragons.filter((d) => (d.spec.size ?? 1) < 2);
   ring.forEach((d, i) => {
-    const a = -2.6 + (5.2 * i) / Math.max(1, ring.length - 1);
-    beds.set(d, new Vector3(Math.sin(a) * 22, 0, 4 + Math.cos(a) * 22));
+    const a = (Math.PI * 2 * (i + 0.5)) / ring.length;
+    beds.set(d, new Vector3(Math.sin(a) * 17, 0, Math.cos(a) * 17));
   });
-  dragons.filter((d) => !ring.includes(d)).forEach((d, i) => beds.set(d, new Vector3(i * 14, 0, 36)));
+  dragons.filter((d) => !ring.includes(d)).forEach((d, i) => beds.set(d, new Vector3(i * 14, 0, 0)));
 }
+for (const d of dragons) d.root.position.copyFrom(d.friend ? beds.get(d)! : toMap(d.spec.area, ...d.spec.home));
 
 const camera = new ArcRotateCamera("camera", -Math.PI / 2, 1.05, 14, new Vector3(0, 1.5, 0), scene);
 camera.attachControl(canvas, true);
@@ -108,11 +112,12 @@ shieldBubble.position.y = 1.2;
 shieldBubble.isPickable = false;
 shieldBubble.isVisible = false;
 
-type Mode = "title" | "wardrobe" | "explore" | "battle" | "nap" | "travel";
+type Mode = "title" | "wardrobe" | "explore" | "battle" | "nap";
 let mode: Mode = "title";
 let now = 0;
-let area: Area;
+let world: World;
 let grid: PathGrid;
+let look: Weights = new Map();
 let currentArea: AreaId = "forest";
 let walkTarget: Vector3 | null = null;
 let walkPath: Vector3[] = []; // waypoints on foot; walkTarget is the final tap
@@ -133,7 +138,6 @@ const greetedAt = new Map<Dragon, number>();
 let helpAt = new Map<Dragon, number>(); // when each friend next puffs at the dragon he's facing
 let raisedUntil = new Map<Dragon, number>();
 const petness = new Map<Dragon, number>(); // 0 is full size, 1 is pet size
-const leaving = new Set<Dragon>(); // friends flying off home
 let camCue: { until: number; radius: number; beta: number; alpha?: () => number } | null = null;
 
 // Each effect runs once per frame until it returns false.
@@ -207,24 +211,46 @@ function reach(d: Dragon): number {
   return FACE_OFF_DISTANCE + Math.max(0, (d.spec.size ?? 1) - 1.5) * 14;
 }
 
-// Wild dragons stay in their area and friends not walking with him wait at home, so every dragon out in an area is one to face.
-function updatePresence() {
-  const walking = followers();
-  for (const d of dragons) d.root.setEnabled(walking.includes(d) || leaving.has(d) || (d.friend ? currentArea === "home" : d.spec.area === currentArea));
+function isOpen(id: AreaId): boolean {
+  return data.friends.length >= AREAS[id].needs;
 }
 
-// A friend he stops walking with flies off home, rather than standing about out here looking wild.
-function flyHome(d: Dragon) {
-  leaving.add(d);
-  sfx.whoosh();
-  effects.push((dt) => {
-    if (!leaving.has(d)) return false;
-    d.root.position.y += dt * 12;
-    if (d.root.position.y < 30) return true;
-    leaving.delete(d);
-    updatePresence();
-    return false;
-  });
+// A wild dragon he can face: not calming down after he walked away, and in a world he can go into.
+function wild(d: Dragon): boolean {
+  return d.root.isEnabled() && !d.friend && now > d.calmUntil && isOpen(regionAt(d.root.position.x, d.root.position.z));
+}
+
+// Every dragon is on the one map, shown while it's near enough to see. His friends step out of the wardrobe close-up.
+function updatePresence() {
+  const walking = followers();
+  for (const d of dragons) {
+    const on = walking.includes(d) ? mode !== "wardrobe" : flatDistance(d.root.position, camera.target) < 110;
+    if (d.root.isEnabled() !== on) d.root.setEnabled(on);
+  }
+}
+
+function lockedHint() {
+  if (now < lockedHintUntil) return;
+  lockedHintUntil = now + 3;
+  sfx.locked();
+  ui.banner("🔒", 1.2);
+}
+
+// The last open spot on the way from a locked one back to him, a step short of the wall.
+function shortOfWall(p: Vector3, from: Vector3): Vector3 {
+  const back = from.subtract(p);
+  back.y = 0;
+  const len = back.length();
+  if (len < 0.01) return from.clone();
+  for (let s = 0; s <= len; s += 0.5) {
+    const q = p.add(back.scale(s / len));
+    if (isOpen(regionAt(q.x, q.z))) return q.add(back.scale(Math.min(1.5, len - s) / len));
+  }
+  return from.clone();
+}
+
+function makeGrid() {
+  grid = new PathGrid(world.obstacles, WIZARD_RADIUS + 0.1, (x, z) => Math.hypot(x, z) > MAP_RADIUS || !isOpen(regionAt(x, z)));
 }
 
 // At home, tapping a friend has it walk with him, or go back to its bed. The oldest choice makes room for a new one.
@@ -245,7 +271,7 @@ function swap(d: Dragon) {
 }
 
 function pushOut(p: Vector3, radius: number) {
-  for (const o of area.obstacles) {
+  for (const o of world.obstacles) {
     const dx = p.x - o.x;
     const dz = p.z - o.z;
     const d = Math.hypot(dx, dz);
@@ -264,7 +290,7 @@ function updateTrees(dt: number) {
   const dx = eye.x - cam.x;
   const dz = eye.z - cam.z;
   const len2 = dx * dx + dz * dz || 1;
-  for (const tree of area.trees) {
+  for (const tree of world.trees) {
     const t = ((tree.x - cam.x) * dx + (tree.z - cam.z) * dz) / len2;
     let hide = false;
     if (t > 0 && t < 1) {
@@ -279,57 +305,81 @@ function updateTrees(dt: number) {
   }
 }
 
-function enterArea(id: AreaId, from?: AreaId) {
-  area?.dispose();
-  currentArea = id;
-  const spec = AREAS[id];
-  leaving.clear();
-  const homes = id === "home" ? [...beds.values()] : DRAGONS.filter((d) => d.area === id).map((d) => new Vector3(d.home[0], 0, d.home[1]));
-  area = buildArea(scene, spec, shadows, homes, data.stars);
-  grade(spec.grade);
-  grid = new PathGrid(area.obstacles, WIZARD_RADIUS + 0.1);
-
-  const arrival = from ? area.portals.find((p) => p.to === from) : undefined;
-  const spawn = arrival ? new Vector3(arrival.x, 0, arrival.z) : new Vector3(spec.spawn[0], 0, spec.spawn[1]);
-  if (arrival) spawn.subtractInPlace(spawn.normalizeToNew().scale(9)); // step out of the portal, toward the middle
-  wizard.root.position.copyFrom(spawn);
-  wizard.root.rotation.y = yawTo(spawn, Vector3.Zero());
+// Puts him at a world's start with his friends beside him: at the start of play, and for testing.
+function place(id: AreaId) {
+  const { at, yaw } = spawnOf(id);
+  wizard.root.position.copyFrom(at);
+  wizard.root.rotation.y = yaw;
   walkTarget = null;
   marker.isVisible = false;
-
-  const walking = followers();
-  for (const d of dragons) {
-    if (walking.includes(d)) continue;
-    petness.set(d, 0);
-    d.root.scaling.setAll(d.fullSize);
-    if (d.friend) d.root.position.copyFrom(beds.get(d)!);
-    else d.root.position.set(d.spec.home[0], 0, d.spec.home[1]);
-    d.root.rotation.y = yawTo(d.root.position, spawn);
-  }
-  const yaw = wizard.root.rotation.y;
-  walking.forEach((d, i) => {
-    // A friend that just joined him arrives as a pet; one already walking with him stays one.
+  camera.target.copyFrom(at).addInPlace(new Vector3(0, 1.5, 0));
+  camera.alpha = behind(yaw);
+  enterRegion(id);
+  followers().forEach((d, i) => {
+    // A friend already walking with him stays a pet.
     if (!petness.has(d)) petness.set(d, 1);
     updateSize(d, true, 0);
     d.root.position.copyFrom(followSpot(i, wizard.root));
     d.root.rotation.y = yaw;
   });
-  updatePresence();
-  area.portals.forEach((p) => p.setFriends(data.friends));
-  ui.tally(id, data.friends);
-  camera.target.copyFrom(spawn).addInPlace(new Vector3(0, 1.5, 0));
-  camera.alpha = behind(yaw);
 }
 
 function travel(to: AreaId) {
-  mode = "travel";
-  sfx.portal();
-  ui.fade(true);
-  setTimeout(() => {
-    enterArea(to, currentArea);
-    ui.fade(false);
-    mode = "explore";
-  }, 450);
+  place(to);
+}
+
+function enterRegion(id: AreaId) {
+  currentArea = id;
+  ui.tally(id, data.friends);
+}
+
+// Sky, fog and the film grade blend toward the worlds around him, so crossing a line is never a jump.
+function updateLook(dt: number) {
+  const c = camera.target;
+  const goal = new Map<AreaId, number>();
+  const samples = 16;
+  const add = (x: number, z: number, w: number) => {
+    const id = regionAt(x, z);
+    goal.set(id, (goal.get(id) ?? 0) + w);
+  };
+  add(c.x, c.z, 1 / (samples + 1));
+  for (let k = 0; k < samples; k++) add(c.x + Math.sin((k / samples) * Math.PI * 2) * 10, c.z + Math.cos((k / samples) * Math.PI * 2) * 10, 1 / (samples + 1));
+  const next: Weights = new Map();
+  let change = 0;
+  for (const id of new Set([...look.keys(), ...goal.keys()])) {
+    const was = look.get(id) ?? 0;
+    const w = was + ((goal.get(id) ?? 0) - was) * Math.min(1, dt * 2);
+    change = Math.max(change, Math.abs(w - was));
+    if (w > 0.002) next.set(id, w);
+  }
+  if (change < 0.0005) return;
+  const total = [...next.values()].reduce((a, b) => a + b, 0);
+  for (const [id, w] of next) next.set(id, w / total);
+  look = next;
+  world.look(look);
+}
+
+// The shadow map covers the ground around him, not the whole map, so it stays sharp; only trees near him cast into it.
+const SHADOW_REACH = 36; // past this the haze has softened shadows anyway
+const sun = shadows.getLight() as DirectionalLight;
+const sunDir = sun.direction.normalizeToNew();
+sun.autoUpdateExtends = false;
+sun.orthoLeft = sun.orthoBottom = -SHADOW_REACH;
+sun.orthoRight = sun.orthoTop = SHADOW_REACH;
+sun.shadowMinZ = 1;
+sun.shadowMaxZ = 200;
+let castersAt = 0;
+function updateShadows() {
+  sun.position.copyFrom(camera.target).subtractInPlace(sunDir.scale(100));
+  if (now < castersAt) return;
+  castersAt = now + 0.5;
+  const c = camera.target;
+  const near = (x: number, z: number) => Math.hypot(x - c.x, z - c.z) < SHADOW_REACH - 4;
+  shadows.getShadowMap()!.renderList = [
+    ...wizard.meshes,
+    ...dragons.filter((d) => near(d.root.position.x, d.root.position.z)).flatMap((d) => d.meshes),
+    ...world.trees.filter((t) => t.radius > 0 && near(t.x, t.z)).flatMap((t) => t.meshes),
+  ];
 }
 
 function orb(from: Vector3, to: () => Vector3, kind: Sparkle, duration: number, onArrive: () => void) {
@@ -354,7 +404,12 @@ function orb(from: Vector3, to: () => Vector3, kind: Sparkle, duration: number, 
 function walkTo(point: Vector3) {
   const p = point.clone();
   p.y = 0;
-  if (p.length() > WORLD_RADIUS) p.normalize().scaleInPlace(WORLD_RADIUS);
+  if (p.length() > MAP_RADIUS) p.normalize().scaleInPlace(MAP_RADIUS);
+  // A tap past a locked line walks him up to it.
+  if (!isOpen(regionAt(p.x, p.z))) {
+    p.copyFrom(shortOfWall(p, (riding ? riding.root : wizard.root).position));
+    lockedHint();
+  }
   if (!riding) {
     const path = grid.find(wizard.root.position, p);
     if (!path || !path.length) return;
@@ -481,13 +536,15 @@ function befriend(d: Dragon) {
   endBattle();
   mode = "explore";
   burst(scene, headOf(d), "gold", 120);
+  // The oldest choice flies home to its bed.
   const walking = followers();
-  before.filter((f) => !walking.includes(f) && currentArea !== "home").forEach(flyHome);
-  updatePresence();
+  if (before.some((f) => !walking.includes(f))) sfx.whoosh();
   const count = data.friends.length;
   ui.friends(count, dragons.length);
-  area.portals.forEach((p) => p.setFriends(data.friends));
+  world.setFriends(data.friends);
   ui.tally(currentArea, data.friends, true);
+  const opened = WORLDS.some((id) => AREAS[id].needs === count);
+  if (opened) makeGrid();
   if (count === dragons.length) {
     sfx.celebrate();
     ui.banner("🎉🐉🎉", 4);
@@ -496,8 +553,7 @@ function befriend(d: Dragon) {
   }
   sfx.friend();
   ui.banner("🐉💛", 2.5);
-  // Tell him when a new friend opens a portal anywhere.
-  const opened = Object.values(AREAS).some((a) => a.portals.some((p) => p.needs === count));
+  // Tell him when a new friend opens a world's line.
   if (opened) setTimeout(() => { sfx.portal(); ui.banner("🔓✨", 2); }, 2700);
 }
 
@@ -518,14 +574,15 @@ function dragonPuff(d: Dragon) {
   });
 }
 
-// Losing is a nap, never a game over: back to the area's start, hearts refilled.
+// Losing is a nap, never a game over: back to the start of the world he's in, hearts refilled.
 function nap(d: Dragon) {
   endBattle();
   mode = "nap";
   ui.banner("💤", 2);
   setTimeout(() => {
-    const [x, z] = AREAS[currentArea].spawn;
-    wizard.root.position.set(x, 0, z);
+    const { at, yaw } = spawnOf(currentArea);
+    wizard.root.position.copyFrom(at);
+    wizard.root.rotation.y = yaw;
     d.grump = 100;
     if (d.spec.phases) tint(d);
     hearts = HEARTS;
@@ -582,8 +639,8 @@ function dismount() {
   wizard.root.rotation.y = d.root.rotation.y;
   camCue = { until: now + 1.2, radius: 14, beta: 1.05 };
   // Landed next to a wild dragon: face it straight away.
-  const wild = dragons.find((w) => w.root.isEnabled() && !w.friend && now > w.calmUntil && flatDistance(wizard.root.position, w.root.position) < reach(w) + 5);
-  if (wild) startBattle(wild);
+  const near = dragons.find((w) => wild(w) && flatDistance(wizard.root.position, w.root.position) < reach(w) + 5);
+  if (near) startBattle(near);
 }
 
 function collect(star: Star) {
@@ -628,6 +685,12 @@ function updateWizard(dt: number) {
       pos.addInPlace(to.normalize().scale(step));
       pushOut(pos, WIZARD_RADIUS);
       turnToward(wizard.root, next, dt, 10);
+      if (!isOpen(regionAt(pos.x, pos.z))) {
+        pos.copyFrom(before);
+        walkTarget = null;
+        marker.isVisible = false;
+        lockedHint();
+      }
       // Pressed against a tree with nowhere to slide: give up rather than walk on the spot.
       stuckFor = Vector3.Distance(before, pos) < step * 0.3 ? stuckFor + dt : 0;
       if (stuckFor > 0.5) {
@@ -641,22 +704,10 @@ function updateWizard(dt: number) {
   wizard.body.position.y = walking ? Math.abs(Math.sin(walkPhase)) * 0.12 : 0;
 
   if (mode !== "explore") return;
-  for (const p of area.portals) {
-    if (Math.hypot(pos.x - p.x, pos.z - p.z) > 2.6) continue;
-    if (data.friends.length >= p.needs) {
-      travel(p.to);
-      return;
-    }
-    if (now > lockedHintUntil) {
-      lockedHintUntil = now + 3;
-      sfx.locked();
-      ui.banner("🔒", 1.2);
-    }
-  }
   const pets = followers();
   for (const d of dragons) {
     if (!d.root.isEnabled() || flatDistance(pos, d.root.position) >= reach(d)) continue;
-    if (!d.friend && now > d.calmUntil) {
+    if (wild(d)) {
       startBattle(d);
       return;
     }
@@ -680,7 +731,7 @@ function updateRide(dt: number) {
     return;
   }
   // Flying up to a wild dragon lands him, and the face-off starts on the ground.
-  if (!landing && dragons.some((w) => w.root.isEnabled() && !w.friend && now > w.calmUntil && flatDistance(p, w.root.position) < reach(w) + 3)) {
+  if (!landing && dragons.some((w) => wild(w) && flatDistance(p, w.root.position) < reach(w) + 3)) {
     landing = true;
     walkTarget = null;
     marker.isVisible = false;
@@ -693,17 +744,24 @@ function updateRide(dt: number) {
       walkTarget = null;
       marker.isVisible = false;
     } else {
-      p.addInPlace(to.normalize().scale(Math.min(dist, FLY_SPEED * dt)));
-      turnToward(d.root, walkTarget, dt, 3);
+      const step = to.normalize().scale(Math.min(dist, FLY_SPEED * dt));
+      // The wall of a locked world reaches up into the sky too.
+      if (isOpen(regionAt(p.x + step.x, p.z + step.z))) p.addInPlace(step);
+      else {
+        walkTarget = null;
+        marker.isVisible = false;
+        lockedHint();
+      }
+      turnToward(d.root, walkTarget ?? p.add(step), dt, 3);
     }
   }
   const flat = Math.hypot(p.x, p.z);
-  if (flat > WORLD_RADIUS) {
-    p.x *= WORLD_RADIUS / flat;
-    p.z *= WORLD_RADIUS / flat;
+  if (flat > MAP_RADIUS) {
+    p.x *= MAP_RADIUS / flat;
+    p.z *= MAP_RADIUS / flat;
   }
   const body = p.add(new Vector3(0, 2.5, 0));
-  for (const s of area.stars) if (!s.collected && Vector3.Distance(body, s.mesh.position) < 3.5) collect(s);
+  for (const s of world.stars) if (!s.collected && Vector3.Distance(body, s.mesh.position) < 3.5) collect(s);
 }
 
 // Where the i-th friend walking with him goes, never between him and the camera: as pets, beside his shoulders;
@@ -753,23 +811,23 @@ function updateDragons(dt: number) {
       if (foe) turnToward(d.root, foe.root.position, dt, 4);
     } else if (d === foe) {
       turnToward(d.root, wizard.root.position, dt, 5);
-    } else if (d.friend && currentArea === "home" && !leaving.has(d)) {
-      // Sent back to its bed, it walks there, then turns to watch him.
+    } else if (d.friend && d !== riding) {
+      // A friend not walking with him goes back to its bed, flying when it's far, then turns to watch him.
       const bed = beds.get(d)!;
       const to = bed.subtract(d.root.position);
       to.y = 0;
       const dist = to.length();
+      const far = dist > 6;
       if (dist > 0.8) {
         moving = true;
-        d.root.position.addInPlace(to.normalize().scale(Math.min(dist, Math.min(dist * 1.5, 8) * dt)));
+        d.root.position.addInPlace(to.normalize().scale(Math.min(dist, Math.min(dist * 1.5, far ? 14 : 8) * dt)));
         turnToward(d.root, bed, dt, 4);
       } else {
         turnToward(d.root, wizard.root.position, dt, 1.5);
       }
-      d.root.position.y += (0 - d.root.position.y) * Math.min(1, dt * 3);
+      d.root.position.y += ((far ? FLY_HEIGHT : 0) - d.root.position.y) * Math.min(1, dt * (far ? 1.5 : 3));
       if (d.root.position.y > 0.5) moving = true;
     }
-    if (leaving.has(d)) moving = true;
     if (d === riding && d.root.position.y > 0.5) moving = true;
     d.phase += dt * (moving ? 7 : 1.6);
     const flap = 0.35 + Math.sin(d.phase) * (moving ? 0.5 : 0.25);
@@ -804,11 +862,15 @@ function updateBattle() {
 }
 
 function updateWorld(dt: number) {
-  for (const s of area.stars) {
+  for (const s of world.stars) {
+    if (s.collected) continue;
     s.mesh.rotation.y += dt * 2;
     s.mesh.position.y = s.baseY + Math.sin(now * 2 + s.baseY) * 0.3;
   }
-  for (const p of area.portals) p.disc.rotation.z += dt;
+  // Which world he's in is wherever he stands, or flies over.
+  const p = (riding ? riding.root : wizard.root).position;
+  const here = regionAt(p.x, p.z);
+  if (here !== currentArea) enterRegion(here);
 }
 
 function updateCamera(dt: number) {
@@ -855,7 +917,7 @@ scene.onPointerObservable.add((info) => {
       return;
     }
   }
-  const pick = scene.pick(scene.pointerX, scene.pointerY, (m) => m === area.ground);
+  const pick = scene.pick(scene.pointerX, scene.pointerY, (m) => world.grounds.has(m));
   if (pick?.hit && pick.pickedPoint) walkTo(pick.pickedPoint);
 });
 
@@ -871,9 +933,8 @@ ui.onWardrobe(
   data.look,
   data.name,
   () => {
-    // His friends stand around the spawn and would block the close-up, so they step out while he dresses.
+    // His friends stand around him and would block the close-up, so they step out while he dresses.
     mode = "wardrobe";
-    followers().forEach((d) => d.root.setEnabled(false));
   },
   (look, name) => {
     applyLook(wizard, look);
@@ -883,7 +944,6 @@ ui.onWardrobe(
   },
   () => {
     mode = "title";
-    updatePresence();
   },
 );
 ui.onSpell(cast);
@@ -902,7 +962,13 @@ ui.friends(data.friends.length, dragons.length);
 ui.stars(data.stars.length);
 ui.muted(data.muted);
 
-enterArea("forest");
+world = buildWorld(scene, shadows, grade, DRAGONS.map((d) => toMap(d.area, ...d.home)), [...beds.values()], data.stars);
+world.walls.forEach((w) => glow.addExcludedMesh(w));
+world.setFriends(data.friends);
+makeGrid();
+for (const d of dragons) if (!d.friend) d.root.rotation.y = yawTo(d.root.position, spawnOf(d.spec.area).at);
+place("forest");
+updateLook(1);
 
 scene.onBeforeRenderObservable.add(() => {
   const dt = Math.min(engine.getDeltaTime() / 1000, 0.05);
@@ -914,6 +980,9 @@ scene.onBeforeRenderObservable.add(() => {
   updateWorld(dt);
   updateCamera(dt);
   updateTrees(dt);
+  updatePresence();
+  updateLook(dt);
+  updateShadows();
   ui.ride(mode !== "explore" ? "hidden" : riding ? "land" : followers().length ? "mount" : "hidden");
   for (let i = effects.length - 1; i >= 0; i--) if (!effects[i](dt)) effects.splice(i, 1);
 });
@@ -923,4 +992,4 @@ window.addEventListener("resize", () => engine.resize());
 if (import.meta.env.PROD && "serviceWorker" in navigator) void navigator.serviceWorker.register("sw.js");
 
 // Exposed for play-testing from the browser console.
-Object.assign(window, { game: { walkTo, cast, toggleRide, travel, swap, dragons, wizard, data, get area() { return area; }, get mode() { return mode; }, get currentArea() { return currentArea; }, camera } });
+Object.assign(window, { game: { walkTo, cast, toggleRide, travel, swap, dragons, wizard, data, get world() { return world; }, get mode() { return mode; }, get currentArea() { return currentArea; }, camera } });

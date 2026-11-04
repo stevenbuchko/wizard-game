@@ -32,10 +32,10 @@ export interface AreaSpec {
   lava?: boolean;
   beds?: string; // a straw bed at every dragon's spot, for the home
   grade: Grade;
-  portalColor: string; // the swirl he sees when a portal leads here
-  spawn: [number, number];
-  portals: { to: AreaId; at: [number, number]; needs: number }[]; // needs: friends required to open
-  stars: [number, number, number][]; // up high, only reachable riding a dragon
+  lineColor: string; // its line's glow, and the edge of its dragons-left row
+  at: number; // which way the world lies from the home in the middle, in degrees from +z toward +x
+  needs: number; // friends required to cross its line
+  stars: [number, number, number][]; // up high, only reachable riding a dragon; [x, y, z] in the world's own spots (src/map.ts)
 }
 
 export const AREAS: Record<AreaId, AreaSpec> = {
@@ -54,14 +54,9 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     rock: "#8c8c85",
     sprinkle: "#ffd94d",
     grade: { exposure: 1.3, contrast: 1.15, saturation: 35, highlights: [45, 25], shadows: [215, 30], bloom: 0.8 },
-    portalColor: "#6fdc8c",
-    spawn: [0, 0],
-    portals: [
-      { to: "snow", at: [-36, 32], needs: 2 },
-      { to: "volcano", at: [36, 32], needs: 4 },
-      { to: "summit", at: [0, -40], needs: 8 },
-      { to: "home", at: [-16, 14], needs: 1 },
-    ],
+    lineColor: "#6fdc8c",
+    at: 0,
+    needs: 0,
     stars: [[10, 9, 10], [-15, 10, -8], [20, 9, -28], [-30, 11, 20], [30, 9, 12]],
   },
   snow: {
@@ -82,9 +77,9 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     sprinkle: "#bfe6ff",
     sprinkleGlows: true,
     grade: { exposure: 1.15, contrast: 1.1, saturation: 20, highlights: [200, 10], shadows: [220, 50], bloom: 0.95 },
-    portalColor: "#bfe6ff",
-    spawn: [0, -34],
-    portals: [{ to: "forest", at: [0, -40], needs: 0 }],
+    lineColor: "#bfe6ff",
+    at: -90,
+    needs: 2,
     stars: [[0, 10, 0], [-28, 9, -20], [28, 11, -18], [-14, 10, 30], [16, 9, 32]],
   },
   volcano: {
@@ -105,9 +100,9 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     sprinkleGlows: true,
     lava: true,
     grade: { exposure: 1.15, contrast: 1.2, saturation: 15, highlights: [30, 40], shadows: [350, 40], bloom: 0.7 },
-    portalColor: "#ff7a2e",
-    spawn: [0, -34],
-    portals: [{ to: "forest", at: [0, -40], needs: 0 }],
+    lineColor: "#ff7a2e",
+    at: 90,
+    needs: 4,
     stars: [[0, 11, 0], [-26, 9, -22], [26, 10, -20], [-20, 10, 28], [22, 11, 30]],
   },
   summit: {
@@ -129,12 +124,12 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     sprinkle: "#ffe28a",
     sprinkleGlows: true,
     grade: { exposure: 1.1, contrast: 1.15, saturation: 20, highlights: [50, 30], shadows: [260, 50], bloom: 0.7 },
-    portalColor: "#ffd34d",
-    spawn: [0, -34],
-    portals: [{ to: "forest", at: [0, -40], needs: 0 }],
+    lineColor: "#ffd34d",
+    at: 180,
+    needs: 8,
     stars: [[0, 14, -8], [-26, 10, -18], [26, 10, -18], [-22, 11, 28], [22, 11, 28]],
   },
-  // Where his friends wait when they aren't walking with him, so no friend stands about in an area looking wild.
+  // The middle of the map, where his friends wait when they aren't walking with him, so no friend stands about looking wild.
   home: {
     id: "home",
     sky: "#f6c89a",
@@ -146,14 +141,14 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     tuft: "#9bcf5a",
     trunk: "#6b4a2a",
     crown: "#4f8f3a",
-    trees: 40,
+    trees: 24,
     rock: "#a39a8a",
     sprinkle: "#ff8fc8",
     beds: "#d9b45a",
     grade: { exposure: 1.25, contrast: 1.1, saturation: 35, highlights: [35, 30], shadows: [280, 25], bloom: 0.8 },
-    portalColor: "#ff8fc8",
-    spawn: [0, -34],
-    portals: [{ to: "forest", at: [0, -40], needs: 0 }],
+    lineColor: "#ff8fc8",
+    at: 0, // the middle itself
+    needs: 0,
     stars: [],
   },
 };

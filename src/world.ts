@@ -21,11 +21,11 @@ import {
   Texture,
   TransformNode,
   Vector3,
+  VertexData,
 } from "./babylon";
 import { AREAS, type AreaId, type AreaSpec, type Grade } from "./areas";
-import { drawTally, TALLY_H, TALLY_W } from "./tally";
-
-export const WORLD_RADIUS = 52;
+import { EDGE, gateOf, HOME_RADIUS, MAP_RADIUS, ownerAt, sliceOf, spawnOf, spokes, toMap, WORLDS } from "./map";
+import { drawTally } from "./tally";
 
 export interface Obstacle {
   x: number;
@@ -41,30 +41,11 @@ export interface Tree extends Obstacle {
   setFade(alpha: number): void;
 }
 
-export interface Portal {
-  to: AreaId;
-  needs: number;
-  x: number;
-  z: number;
-  disc: Mesh;
-  setFriends(friends: string[]): void;
-}
-
 export interface Star {
   id: string;
   mesh: Mesh;
   baseY: number;
   collected: boolean;
-}
-
-export interface Area {
-  spec: AreaSpec;
-  ground: Mesh;
-  trees: Tree[];
-  obstacles: Obstacle[];
-  portals: Portal[];
-  stars: Star[];
-  dispose(): void;
 }
 
 const hex = (h: string) => Color3.FromHexString(h);
@@ -77,7 +58,7 @@ function material(scene: Scene, color: Color3, glows = false): StandardMaterial 
   return m;
 }
 
-// Seeded so each area looks the same every time he visits.
+// Seeded so the map looks the same every time he plays.
 function random(seed: number): () => number {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0;
@@ -155,7 +136,7 @@ float range(float a, float s) {
 vec3 mountain(vec3 sky, vec3 color, float h, float top, float hazeTop) {
   if (h > top) return sky;
   vec3 c = mix(horizon, color, smoothstep(-0.01, hazeTop, h));
-  if (peaks > 0.5 && h > top - 0.022) c = mix(c, peak, 0.85);
+  if (h > top - 0.022) c = mix(c, peak, 0.85 * peaks);
   return c;
 }
 void main() {
@@ -171,7 +152,8 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
 }`;
 
-function buildSky(scene: Scene, spec: AreaSpec, root: TransformNode) {
+// One sky over the whole map. Mountains stay put; their colors blend between the worlds he stands between.
+function buildSky(scene: Scene): ShaderMaterial {
   const sky = new ShaderMaterial("sky", scene, { vertexSource: SKY_VERTEX, fragmentSource: SKY_FRAGMENT }, {
     attributes: ["position"],
     uniforms: ["worldViewProjection", "top", "horizon", "sunColor", "far", "near", "peak", "sunDir", "height", "seed", "peaks"],
@@ -180,20 +162,41 @@ function buildSky(scene: Scene, spec: AreaSpec, root: TransformNode) {
   // Lower than the light itself, so he sees the sun glow above the mountains when he turns toward it.
   const sun = new Vector3(-SUN.x, 0, -SUN.z).normalize().scale(Math.cos(0.32));
   sun.y = Math.sin(0.32);
-  sky.setColor3("top", hex(spec.skyTop));
-  sky.setColor3("horizon", hex(spec.sky));
-  sky.setColor3("sunColor", hex(spec.sun));
-  sky.setColor3("far", hex(spec.mountains[0]));
-  sky.setColor3("near", hex(spec.mountains[1]));
-  sky.setColor3("peak", hex(spec.peaks ?? spec.sky));
-  sky.setFloat("peaks", spec.peaks ? 1 : 0);
   sky.setVector3("sunDir", sun);
-  sky.setFloat("height", spec.id === "summit" ? 0.07 : 0.12);
-  sky.setFloat("seed", [...spec.id].reduce((n, ch) => n + ch.charCodeAt(0), 0) % 7);
+  sky.setFloat("seed", 3);
   const dome = MeshBuilder.CreateSphere("sky", { diameter: 800, segments: 24 }, scene);
   dome.material = sky;
   dome.isPickable = false;
-  dome.parent = root;
+  dome.infiniteDistance = true;
+  return sky;
+}
+
+export type Weights = Map<AreaId, number>;
+
+function mix(weights: Weights, of: (s: AreaSpec) => Color3): Color3 {
+  const c = new Color3(0, 0, 0);
+  for (const [id, w] of weights) c.addInPlace(of(AREAS[id]).scale(w));
+  return c;
+}
+
+function sum(weights: Weights, of: (s: AreaSpec) => number): number {
+  let n = 0;
+  for (const [id, w] of weights) n += of(AREAS[id]) * w;
+  return n;
+}
+
+// Hues are angles, so they blend the short way round.
+function hue(weights: Weights, of: (s: AreaSpec) => [number, number]): [number, number] {
+  let x = 0;
+  let y = 0;
+  let density = 0;
+  for (const [id, w] of weights) {
+    const [h, d] = of(AREAS[id]);
+    x += Math.cos((h * Math.PI) / 180) * w;
+    y += Math.sin((h * Math.PI) / 180) * w;
+    density += d * w;
+  }
+  return [((Math.atan2(y, x) * 180) / Math.PI + 360) % 360, density];
 }
 
 const rgba = (c: Color3, a: number) => `rgba(${(c.r * 255) | 0},${(c.g * 255) | 0},${(c.b * 255) | 0},${a})`;
@@ -391,7 +394,7 @@ function paintPatches(scene: Scene, rand: () => number): DynamicTexture {
 }
 
 // Grass tufts, frosted grass, charred stalks or crystal shards: one mesh drawn many times in a single call.
-function scatterTufts(scene: Scene, spec: AreaSpec, root: TransformNode, rand: () => number, free: (x: number, z: number) => boolean) {
+function scatterTufts(scene: Scene, spec: AreaSpec, root: TransformNode, rand: () => number, spot: () => [number, number] | null) {
   const parts: Mesh[] = [];
   const pivots: TransformNode[] = [];
   const blades = { grass: 7, snow: 5, ash: 3, crystal: 3 }[spec.floor];
@@ -414,27 +417,26 @@ function scatterTufts(scene: Scene, spec: AreaSpec, root: TransformNode, rand: (
   tuft.material = material(scene, hex(spec.tuft), spec.floor === "crystal");
   if (spec.floor === "crystal") (tuft.material as StandardMaterial).emissiveColor = hex(spec.tuft).scale(0.12);
 
-  const count = spec.floor === "grass" ? 900 : spec.floor === "snow" ? 300 : 500;
+  const count = spec.id === "home" ? 400 : spec.floor === "grass" ? 900 : spec.floor === "snow" ? 300 : 500;
   const matrices = new Float32Array(count * 16);
   const colors = new Float32Array(count * 4);
   const matrix = new Matrix();
   let placed = 0;
-  while (placed < count) {
-    const x = (rand() - 0.5) * 110;
-    const z = (rand() - 0.5) * 110;
-    if (!free(x, z)) continue;
+  for (let tries = 0; placed < count && tries < count * 50; tries++) {
+    const at = spot();
+    if (!at) continue;
     const s = 0.7 + rand() * 0.7;
-    Matrix.ComposeToRef(new Vector3(s, s, s), Quaternion.RotationYawPitchRoll(rand() * Math.PI * 2, 0, 0), new Vector3(x, 0, z), matrix);
+    Matrix.ComposeToRef(new Vector3(s, s, s), Quaternion.RotationYawPitchRoll(rand() * Math.PI * 2, 0, 0), new Vector3(at[0], 0, at[1]), matrix);
     matrix.copyToArray(matrices, placed * 16);
     const v = 0.8 + rand() * 0.35;
     colors.set([v * (0.95 + rand() * 0.1), v * (0.95 + rand() * 0.1), v * (0.95 + rand() * 0.1), 1], placed * 4);
     placed++;
   }
-  tuft.thinInstanceSetBuffer("matrix", matrices, 16, true);
-  tuft.thinInstanceSetBuffer("color", colors, 4, true);
+  tuft.thinInstanceSetBuffer("matrix", matrices.subarray(0, placed * 16), 16, true);
+  tuft.thinInstanceSetBuffer("color", colors.subarray(0, placed * 4), 4, true);
 }
 
-// A sign over a locked portal: one dragon per friend it needs, lit for each friend he has.
+// A sign on a locked line: one dragon per friend it needs, lit for each friend he has.
 function drawSign(texture: DynamicTexture, needs: number, friends: number) {
   const ctx = texture.getContext() as unknown as CanvasRenderingContext2D;
   ctx.clearRect(0, 0, 512, 128);
@@ -445,9 +447,12 @@ function drawSign(texture: DynamicTexture, needs: number, friends: number) {
   ctx.font = "72px sans-serif";
   ctx.textBaseline = "middle";
   ctx.fillText("🔒", 20, 68);
+  // Eight friends for the King only fit smaller.
+  const step = Math.min(92, 380 / needs);
+  ctx.font = `${Math.min(72, step * 0.95)}px sans-serif`;
   for (let i = 0; i < needs; i++) {
     ctx.globalAlpha = i < friends ? 1 : 0.25;
-    ctx.fillText("🐉", 120 + i * 92, 68);
+    ctx.fillText("🐉", 120 + i * step, 68);
   }
   ctx.globalAlpha = 1;
   texture.update();
@@ -488,52 +493,138 @@ function fader(meshes: AbstractMesh[]): (alpha: number) => void {
   };
 }
 
-export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator, keepClear: Vector3[], collected: string[]): Area {
-  const root = new TransformNode(spec.id, scene);
-  const sky = hex(spec.sky);
-  scene.clearColor = new Color4(sky.r, sky.g, sky.b, 1);
-  scene.fogMode = Scene.FOGMODE_LINEAR;
-  scene.fogStart = 45;
-  scene.fogEnd = 95;
-  scene.fogColor = sky;
+export interface World {
+  grounds: Set<AbstractMesh>;
+  trees: Tree[];
+  obstacles: Obstacle[];
+  stars: Star[];
+  walls: Mesh[];
+  setFriends(friends: string[]): void;
+  look(weights: Weights): void;
+}
 
-  const owned: Mesh[] = [];
+const GROUND_REACH = 260; // the ground runs on past where he can go, into the haze under the mountains
+const WALL_HEIGHT = 5;
+
+// A flat piece of a ring on the ground, its texture laid in map coordinates so neighbouring pieces meet without a seam.
+// With fade, it goes from solid on its inside edge to clear on its outside one.
+function ringPiece(scene: Scene, r0: number, r1: number, a0: number, a1: number, fade = false): Mesh {
+  const steps = Math.max(2, Math.ceil((a1 - a0) / 0.05));
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const a = a0 + ((a1 - a0) * i) / steps;
+    for (const [r, alpha] of [[r0, 1], [r1, fade ? 0 : 1]]) {
+      const x = Math.sin(a) * r;
+      const z = Math.cos(a) * r;
+      positions.push(x, 0, z);
+      normals.push(0, 1, 0);
+      uvs.push(x / FLOOR_TILE, z / FLOOR_TILE);
+      colors.push(1, 1, 1, alpha);
+    }
+    if (i < steps) indices.push(i * 2, i * 2 + 3, i * 2 + 1, i * 2, i * 2 + 2, i * 2 + 3);
+  }
+  const mesh = new Mesh("ground", scene);
+  const v = new VertexData();
+  v.positions = positions;
+  v.normals = normals;
+  v.uvs = uvs;
+  v.indices = indices;
+  if (fade) v.colors = colors;
+  v.applyToMesh(mesh);
+  mesh.hasVertexAlpha = fade;
+  mesh.isPickable = false;
+  return mesh;
+}
+
+// A see-through wall of light standing on a line, brightest at the ground and fading upward.
+function curtain(scene: Scene, points: [number, number][], color: Color3, root: TransformNode): Mesh {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  points.forEach(([x, z], i) => {
+    positions.push(x, 0, z, x, WALL_HEIGHT, z);
+    colors.push(1, 1, 1, 0.3, 1, 1, 1, 0);
+    if (i < points.length - 1) indices.push(i * 2, i * 2 + 1, i * 2 + 3, i * 2, i * 2 + 3, i * 2 + 2);
+  });
+  const mesh = new Mesh("wall", scene);
+  const v = new VertexData();
+  v.positions = positions;
+  v.colors = colors;
+  v.indices = indices;
+  v.applyToMesh(mesh);
+  mesh.hasVertexAlpha = true;
+  const m = new StandardMaterial("wall", scene);
+  m.diffuseColor = Color3.Black();
+  m.emissiveColor = color;
+  m.disableLighting = true;
+  m.backFaceCulling = false;
+  mesh.material = m;
+  mesh.isPickable = false;
+  mesh.parent = root;
+  return mesh;
+}
+
+// A random spot in a region, spread evenly over its area, out to reach; null when it turns out to be a neighbour's.
+function spotIn(id: AreaId, rand: () => number, reach: number): [number, number] | null {
+  const home = id === "home";
+  const [a0, a1] = home ? [0, Math.PI * 2] : sliceOf(id);
+  const r0 = home ? 0 : HOME_RADIUS - EDGE;
+  const r1 = home ? HOME_RADIUS : reach;
+  const a = a0 + rand() * (a1 - a0);
+  const r = Math.sqrt(r0 * r0 + rand() * (r1 * r1 - r0 * r0));
+  const x = Math.sin(a) * r;
+  const z = Math.cos(a) * r;
+  return ownerAt(x, z, rand()) === id ? [x, z] : null;
+}
+
+interface Shared {
+  root: TransformNode;
+  shadows: ShadowGenerator;
+  clearOf: Vector3[];
+  beds: Vector3[];
+  collected: string[];
+  world: World;
+  swaying: { node: TransformNode; phase: number }[];
+}
+
+// One region's ground, trees, rocks, sprinkles, tufts and stars, each only on its own part of the map.
+function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, beds, collected, world, swaying }: Shared) {
+  const home = spec.id === "home";
+  const vary = random(spec.trees * 31 + 7); // looks only, so trees stay where they are when looks change
+  const rand = random(spec.id.length * 97 + spec.trees);
+  const clear = (x: number, z: number, r: number) => clearOf.every((p) => Math.hypot(x - p.x, z - p.z) > r);
+  const { trees, obstacles } = world;
   const own = <T extends AbstractMesh>(m: T): T => {
     m.parent = root;
     m.isPickable = false;
     return m;
   };
+  // Hidden past the haze, so the far side of the map costs nothing.
+  const fadesAt = (m: Mesh, distance: number) => m.addLODLevel(distance, null);
 
-  buildSky(scene, spec, root);
-
-  // Wider than he can walk, so the ground runs on into the haze under the mountains.
-  const size = 300;
-  const vary = random(spec.trees * 31 + 7); // looks only, so trees stay where they always were
-  const ground = MeshBuilder.CreateGround("ground", { width: size, height: size }, scene);
   const floor = paintFloor(scene, spec, vary);
-  floor.color.uScale = floor.color.vScale = size / FLOOR_TILE;
   const groundMat = material(scene, Color3.White());
   groundMat.diffuseTexture = floor.color;
-  if (floor.glow) {
-    floor.glow.uScale = floor.glow.vScale = size / FLOOR_TILE;
-    groundMat.emissiveTexture = floor.glow;
-  }
+  if (floor.glow) groundMat.emissiveTexture = floor.glow;
   const patches = paintPatches(scene, vary);
-  patches.uScale = patches.vScale = size / 90;
+  patches.uScale = patches.vScale = FLOOR_TILE / 90;
   groundMat.ambientTexture = patches;
-  ground.material = groundMat;
-  ground.receiveShadows = true;
-  ground.parent = root;
-  owned.push(ground);
-
-  const rand = random(spec.id.length * 97 + spec.trees);
-  const portalSpots = spec.portals.map((p) => new Vector3(p.at[0], 0, p.at[1]));
-  const spawn = new Vector3(spec.spawn[0], 0, spec.spawn[1]);
-  const clearOf = [spawn, ...keepClear, ...portalSpots];
-  const clear = (x: number, z: number, r: number) => clearOf.every((p) => Math.hypot(x - p.x, z - p.z) > r);
-
-  const obstacles: Obstacle[] = [];
-  const trees: Tree[] = [];
+  const [a0, a1] = home ? [0, Math.PI * 2] : sliceOf(spec.id);
+  // The home sits a little above the worlds, its outer edge fading into theirs.
+  const pieces = home
+    ? [ringPiece(scene, 0, HOME_RADIUS - EDGE, a0, a1), ringPiece(scene, HOME_RADIUS - EDGE, HOME_RADIUS, a0, a1, true)]
+    : [ringPiece(scene, HOME_RADIUS - EDGE - 1, GROUND_REACH, a0, a1)];
+  for (const g of pieces) {
+    g.material = groundMat;
+    g.receiveShadows = true;
+    g.parent = root;
+    g.position.y = home ? 0.02 : 0;
+    world.grounds.add(g);
+  }
 
   // Every tree is an instance, with the source meshes hidden, so each one can be hidden on its own.
   const trunk = own(MeshBuilder.CreateCylinder("trunk", { height: 2.4, diameterTop: 0.35, diameterBottom: 0.55, tessellation: 8 }, scene));
@@ -549,19 +640,23 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
     m.registerInstancedBuffer("color", 4);
     m.instancedBuffers.color = new Color4(1, 1, 1, 1);
   }
-  for (const m of [trunk, crown, cap]) if (m) m.isVisible = false;
+  for (const m of [trunk, crown, cap]) {
+    if (!m) continue;
+    m.isVisible = false;
+    fadesAt(m, 110);
+  }
   const tiers = [
     [2, 2.4, 3.4], // bottom, height and width, in tree units
     [3.3, 2.2, 2.6],
     [4.5, 2.1, 1.8],
   ];
-  const swaying: { node: TransformNode; phase: number }[] = [];
 
   let placed = 0;
-  while (placed < spec.trees) {
-    const x = (rand() - 0.5) * 120;
-    const z = (rand() - 0.5) * 120;
-    if (!clear(x, z, 10)) continue;
+  for (let tries = 0; placed < spec.trees && tries < spec.trees * 100; tries++) {
+    const at = spotIn(spec.id, rand, MAP_RADIUS + 12);
+    if (!at) continue;
+    const [x, z] = at;
+    if (!clear(x, z, home ? 7 : 10)) continue;
     const s = 0.8 + rand() * 0.8;
     const meshes: AbstractMesh[] = [];
     const t = own(trunk.createInstance("t"));
@@ -610,36 +705,37 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
   const rock = own(MeshBuilder.CreateSphere("rock", { diameter: 1.4, segments: 6 }, scene));
   rock.material = material(scene, hex(spec.rock));
   rock.isVisible = false;
-  for (let i = 0; i < 30; i++) {
-    const x = (rand() - 0.5) * 100;
-    const z = (rand() - 0.5) * 100;
-    if (!clear(x, z, 6)) continue;
+  fadesAt(rock, 100);
+  for (let i = 0; i < (home ? 8 : 30); i++) {
+    const at = spotIn(spec.id, rand, MAP_RADIUS);
+    if (!at || !clear(at[0], at[1], 6)) continue;
     const r = own(rock.createInstance("r"));
-    r.position.set(x, 0.2, z);
+    r.position.set(at[0], 0.2, at[1]);
     r.scaling.set(0.6 + rand(), 0.4 + rand() * 0.5, 0.6 + rand());
   }
 
   const sprinkle = own(MeshBuilder.CreateSphere("sprinkle", { diameter: 0.25, segments: 4 }, scene));
   sprinkle.material = material(scene, hex(spec.sprinkle), spec.sprinkleGlows);
   sprinkle.isVisible = false;
-  for (let i = 0; i < 120; i++) {
-    const f = own(sprinkle.createInstance("f"));
-    f.position.set((rand() - 0.5) * 90, 0.12, (rand() - 0.5) * 90);
+  fadesAt(sprinkle, 60);
+  for (let i = 0; i < (home ? 60 : 120); i++) {
+    const at = spotIn(spec.id, rand, MAP_RADIUS);
+    if (!at) continue;
+    own(sprinkle.createInstance("f")).position.set(at[0], 0.12, at[1]);
   }
 
   if (spec.lava) {
     const lavaMat = material(scene, new Color3(1, 0.35, 0.1), true);
     let pools = 0;
-    while (pools < 9) {
-      const x = (rand() - 0.5) * 90;
-      const z = (rand() - 0.5) * 90;
+    for (let tries = 0; pools < 9 && tries < 900; tries++) {
+      const at = spotIn(spec.id, rand, MAP_RADIUS - 10);
       const radius = 2 + rand() * 2;
-      if (!clear(x, z, 9 + radius)) continue;
+      if (!at || !clear(at[0], at[1], 9 + radius)) continue;
       const pool = own(MeshBuilder.CreateDisc("lava", { radius, tessellation: 24 }, scene));
       pool.material = lavaMat;
       pool.rotation.x = Math.PI / 2;
-      pool.position.set(x, 0.04, z);
-      obstacles.push({ x, z, radius });
+      pool.position.set(at[0], 0.04, at[1]);
+      obstacles.push({ x: at[0], z: at[1], radius });
       pools++;
     }
   }
@@ -647,7 +743,7 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
   if (spec.beds) {
     const straw = material(scene, hex(spec.beds));
     const hay = material(scene, hex(spec.beds).scale(0.8));
-    for (const p of keepClear) {
+    for (const p of beds) {
       const rim = own(MeshBuilder.CreateTorus("bed", { diameter: 5.5, thickness: 1.1, tessellation: 24 }, scene));
       rim.material = straw;
       rim.scaling.y = 0.45;
@@ -661,125 +757,167 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
     }
   }
 
-  scatterTufts(scene, spec, root, vary, (x, z) => clear(x, z, 3) && obstacles.every((o) => Math.hypot(x - o.x, z - o.z) > o.radius + 0.4));
-
-  const stoneMat = material(scene, new Color3(0.55, 0.53, 0.5));
-  const portals: Portal[] = spec.portals.map((p) => {
-    const [x, z] = p.at;
-    const node = new TransformNode("portal", scene);
-    node.parent = root;
-    node.position.set(x, 0, z);
-    node.rotation.y = Math.atan2(-x, -z);
-    const parts: AbstractMesh[] = [];
-    const ring = own(MeshBuilder.CreateTorus("ring", { diameter: 5, thickness: 0.6, tessellation: 32 }, scene));
-    ring.parent = node;
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 2.8;
-    ring.material = stoneMat;
-    parts.push(ring);
-    for (const side of [-1, 1]) {
-      const pillar = own(MeshBuilder.CreateCylinder("pillar", { height: 2.8, diameter: 0.7 }, scene));
-      pillar.parent = node;
-      pillar.position.set(side * 2.5, 1.4, 0);
-      pillar.material = stoneMat;
-      parts.push(pillar);
-      // Pillars in world space, so he walks between them, not through them.
-      obstacles.push({ x: x + Math.cos(node.rotation.y) * side * 2.5, z: z - Math.sin(node.rotation.y) * side * 2.5, radius: 0.45 });
-    }
-    const swirl = material(scene, hex(AREAS[p.to].portalColor), true);
-    swirl.backFaceCulling = false;
-    swirl.alpha = 0.75;
-    const disc = own(MeshBuilder.CreateDisc("swirl", { radius: 2.2, tessellation: 32 }, scene));
-    disc.parent = node;
-    disc.position.y = 2.8;
-    disc.material = swirl;
-    parts.push(disc);
-    // Listed with the trees so it hides when it stands between the camera and the wizard.
-    trees.push({ x, z, radius: 0, crown: 2.8, height: 5.6, meshes: parts, fade: 1, setFade: fader(parts) });
-
-    const signTexture = new DynamicTexture("sign", { width: 512, height: 128 }, scene, false);
-    signTexture.hasAlpha = true;
-    const signMat = new StandardMaterial("signMat", scene);
-    signMat.diffuseTexture = signTexture;
-    signMat.emissiveColor = Color3.White();
-    signMat.disableLighting = true;
-    signMat.backFaceCulling = false;
-    const sign = own(MeshBuilder.CreatePlane("sign", { width: 4, height: 1 }, scene));
-    sign.parent = node;
-    sign.position.y = 6;
-    sign.material = signMat;
-    sign.billboardMode = Mesh.BILLBOARDMODE_Y;
-    sign.metadata = { sign: true };
-
-    // The dragons living in the world it leads to, inside the top of the ring where the play camera sees it, facing the way he
-    // comes from; the home has no wild dragons, so its portal has none.
-    const tallyTexture = new DynamicTexture("tally", { width: TALLY_W, height: TALLY_H }, scene, false);
-    tallyTexture.hasAlpha = true;
-    const tallyMat = new StandardMaterial("tallyMat", scene);
-    tallyMat.diffuseTexture = tallyTexture;
-    tallyMat.emissiveColor = Color3.White();
-    tallyMat.disableLighting = true;
-    tallyMat.backFaceCulling = false;
-    const tally = own(MeshBuilder.CreatePlane("tally", { width: 4.4, height: 1.1 }, scene));
-    tally.parent = node;
-    tally.position.set(0, 3.9, 0.35);
-    tally.rotation.y = Math.PI;
-    tally.material = tallyMat;
-    tally.isPickable = false;
-    tally.metadata = { sign: true };
-    parts.push(tally); // fades with the portal
-    tally.isVisible = p.to !== "home";
-
-    return {
-      to: p.to,
-      needs: p.needs,
-      x,
-      z,
-      disc,
-      setFriends(friends: string[]) {
-        const count = friends.length;
-        const open = count >= p.needs;
-        swirl.emissiveColor = open ? hex(AREAS[p.to].portalColor) : new Color3(0.15, 0.15, 0.18);
-        swirl.diffuseColor = swirl.emissiveColor;
-        sign.isVisible = !open;
-        if (!open) drawSign(signTexture, p.needs, count);
-        if (p.to !== "home") {
-          drawTally(tallyTexture.getContext() as unknown as CanvasRenderingContext2D, p.to, friends);
-          tallyTexture.update();
-        }
-      },
-    };
+  scatterTufts(scene, spec, root, vary, () => {
+    const at = spotIn(spec.id, vary, MAP_RADIUS);
+    return at && clear(at[0], at[1], 3) && obstacles.every((o) => Math.hypot(at[0] - o.x, at[1] - o.z) > o.radius + 0.4) ? at : null;
   });
 
   const starMat = material(scene, new Color3(1, 0.85, 0.25), true);
-  const stars: Star[] = [];
   spec.stars.forEach(([x, y, z], i) => {
     const id = `${spec.id}-${i}`;
     if (collected.includes(id)) return;
     const mesh = own(MeshBuilder.CreatePolyhedron("star", { type: 1, size: 0.6 }, scene));
     mesh.material = starMat;
-    mesh.position.set(x, y, z);
-    stars.push({ id, mesh, baseY: y, collected: false });
+    mesh.position.copyFrom(toMap(spec.id, x, z));
+    mesh.position.y = y;
+    world.stars.push({ id, mesh, baseY: y, collected: false });
+  });
+}
+
+// A picture on a board, always turned to face him, drawn unlit so it reads the same in every world.
+function board(scene: Scene, width: number, height: number, root: TransformNode): { mesh: Mesh; texture: DynamicTexture } {
+  const texture = new DynamicTexture("board", { width: 512, height: 128 }, scene, false);
+  texture.hasAlpha = true;
+  const m = new StandardMaterial("board", scene);
+  m.diffuseTexture = texture;
+  m.emissiveColor = Color3.White();
+  m.disableLighting = true;
+  m.backFaceCulling = false;
+  const mesh = MeshBuilder.CreatePlane("board", { width, height }, scene);
+  mesh.material = m;
+  mesh.billboardMode = Mesh.BILLBOARDMODE_Y;
+  mesh.isPickable = false;
+  mesh.parent = root;
+  mesh.metadata = { sign: true };
+  return { mesh, texture };
+}
+
+// The whole map at once: the home in the middle, every world around it, the lines between them, and a wall of light on the
+// lines of each world he can't go into yet.
+export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Grade) => void, keepClear: Vector3[], beds: Vector3[], collected: string[]): World {
+  const root = new TransformNode("world", scene);
+  scene.fogMode = Scene.FOGMODE_LINEAR;
+  scene.fogStart = 45;
+  scene.fogEnd = 95;
+  const sky = buildSky(scene);
+
+  const swaying: { node: TransformNode; phase: number }[] = [];
+  const gates = WORLDS.map((id) => gateOf(id).scale((HOME_RADIUS - 1.5) / HOME_RADIUS)); // just on the home's side of each line
+  // Clear of trees: dragons' spots, beds, the signs, where the lines meet, and a way from the middle out into each world.
+  const ways = WORLDS.flatMap((id) => Array.from({ length: 9 }, (_, i) => spawnOf(id).at.scale(i / 8)));
+  const corners = WORLDS.flatMap((id) => sliceOf(id).map((a) => new Vector3(Math.sin(a) * HOME_RADIUS, 0, Math.cos(a) * HOME_RADIUS)));
+  const clearOf = [...keepClear, ...beds, ...gates, ...ways, ...corners];
+  const world: World = { grounds: new Set(), trees: [], obstacles: [], stars: [], walls: [], setFriends: () => {}, look: () => {} };
+  for (const spec of Object.values(AREAS)) buildRegion(scene, spec, { root, shadows, clearOf, beds, collected, world, swaying });
+
+  // The lines: a ring round the home, and a spoke out between every two worlds.
+  const lineMat = material(scene, hex("#fff2c8"), true);
+  lineMat.disableLighting = true;
+  const ring = ringPiece(scene, HOME_RADIUS - 0.2, HOME_RADIUS + 0.2, 0, Math.PI * 2);
+  ring.material = lineMat;
+  ring.parent = root;
+  ring.position.y = 0.06;
+  for (const a of spokes()) {
+    const spoke = MeshBuilder.CreateGround("line", { width: 0.4, height: MAP_RADIUS - HOME_RADIUS }, scene);
+    spoke.material = lineMat;
+    spoke.parent = root;
+    spoke.isPickable = false;
+    spoke.rotation.y = a;
+    const mid = (HOME_RADIUS + MAP_RADIUS) / 2;
+    spoke.position.set(Math.sin(a) * mid, 0.06, Math.cos(a) * mid);
+  }
+
+  const wood = material(scene, hex("#6b4a2a"));
+  const gateSigns = WORLDS.map((id, i) => {
+    const at = gates[i];
+    const post = MeshBuilder.CreateCylinder("post", { height: 4.2, diameter: 0.3, tessellation: 8 }, scene);
+    post.material = wood;
+    post.parent = root;
+    post.isPickable = false;
+    post.position.set(at.x, 2.1, at.z);
+    world.obstacles.push({ x: at.x, z: at.z, radius: 0.35 });
+    // The world's dragons on the post, and over them, while it's locked, the friends it needs.
+    const tally = board(scene, 4.4, 1.1, root);
+    tally.mesh.position.set(at.x, 3.7, at.z);
+    const lock = board(scene, 4, 1, root);
+    lock.mesh.position.set(at.x, 5, at.z);
+    // Listed with the trees so it fades when it stands between the camera and the wizard.
+    const parts = [post, tally.mesh, lock.mesh];
+    world.trees.push({ x: at.x, z: at.z, radius: 0, crown: 2.4, height: 5.6, meshes: parts, fade: 1, setFade: fader(parts) });
+    return { id, tally, lock };
   });
 
-  const swayer = scene.onBeforeRenderObservable.add(() => {
+  const locks = WORLDS.map((id) => {
+    const spec = AREAS[id];
+    const [a0, a1] = sliceOf(id);
+    const out = (a: number, r: number): [number, number] => [Math.sin(a) * r, Math.cos(a) * r];
+    const arc: [number, number][] = [];
+    const steps = Math.ceil((a1 - a0) / 0.05);
+    for (let i = 0; i <= steps; i++) arc.push(out(a0 + ((a1 - a0) * i) / steps, HOME_RADIUS));
+    const wall = curtain(scene, [out(a0, MAP_RADIUS), ...arc, out(a1, MAP_RADIUS)], hex(spec.lineColor), root);
+    world.walls.push(wall);
+    // A sign halfway along each spoke too, a step inside the locked world, for when he walks up from the world next door.
+    const mid = (HOME_RADIUS + MAP_RADIUS) / 2;
+    const signs = [a0, a1].map((a) => {
+      const inward = (a === a0 ? 1 : -1) * (1.2 / mid);
+      const sign = board(scene, 4, 1, root);
+      const [x, z] = out(a + inward, mid);
+      sign.mesh.position.set(x, 3, z);
+      return sign;
+    });
+    return { id, wall, signs };
+  });
+
+  world.setFriends = (friends) => {
+    for (const { id, tally, lock } of gateSigns) {
+      const open = friends.length >= AREAS[id].needs;
+      drawTally(tally.texture.getContext() as unknown as CanvasRenderingContext2D, id, friends);
+      tally.texture.update();
+      lock.mesh.isVisible = !open;
+      if (!open) drawSign(lock.texture, AREAS[id].needs, friends.length);
+    }
+    for (const { id, wall, signs } of locks) {
+      const open = friends.length >= AREAS[id].needs;
+      wall.isVisible = !open;
+      for (const s of signs) {
+        s.mesh.isVisible = !open;
+        if (!open) drawSign(s.texture, AREAS[id].needs, friends.length);
+      }
+    }
+  };
+
+  world.look = (weights) => {
+    const horizon = mix(weights, (s) => hex(s.sky));
+    sky.setColor3("top", mix(weights, (s) => hex(s.skyTop)));
+    sky.setColor3("horizon", horizon);
+    sky.setColor3("sunColor", mix(weights, (s) => hex(s.sun)));
+    sky.setColor3("far", mix(weights, (s) => hex(s.mountains[0])));
+    sky.setColor3("near", mix(weights, (s) => hex(s.mountains[1])));
+    sky.setColor3("peak", mix(weights, (s) => hex(s.peaks ?? s.sky)));
+    sky.setFloat("peaks", sum(weights, (s) => (s.peaks ? 1 : 0)));
+    sky.setFloat("height", sum(weights, (s) => (s.id === "summit" ? 0.07 : 0.12)));
+    scene.clearColor = new Color4(horizon.r, horizon.g, horizon.b, 1);
+    scene.fogColor = horizon;
+    grade({
+      exposure: sum(weights, (s) => s.grade.exposure),
+      contrast: sum(weights, (s) => s.grade.contrast),
+      saturation: sum(weights, (s) => s.grade.saturation),
+      highlights: hue(weights, (s) => s.grade.highlights),
+      shadows: hue(weights, (s) => s.grade.shadows),
+      bloom: sum(weights, (s) => s.grade.bloom),
+    });
+  };
+
+  // Only trees near him sway; far ones are too small to see it, and each moving crown costs a little.
+  scene.onBeforeRenderObservable.add(() => {
     const t = performance.now() / 1000;
+    const eye = scene.activeCamera!.position;
     for (const { node, phase } of swaying) {
+      if (Math.abs(node.position.x - eye.x) > 60 || Math.abs(node.position.z - eye.z) > 60) continue;
       node.rotation.x = 0.03 * Math.sin(t * 1.3 + phase);
       node.rotation.z = 0.03 * Math.sin(t * 1.05 + phase * 1.7);
     }
   });
 
-  return {
-    spec,
-    ground,
-    trees,
-    obstacles,
-    portals,
-    stars,
-    dispose: () => {
-      scene.onBeforeRenderObservable.remove(swayer);
-      root.dispose(false, true);
-    },
-  };
+  return world;
 }

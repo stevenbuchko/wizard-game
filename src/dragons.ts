@@ -13,7 +13,7 @@ export const WEAKNESS: Record<Element, Element> = { fire: "ice", ice: "lightning
  * - weakTo: the spell that befriends it, in three hits
  * - size: 1 is normal, 1.5 is big (optional)
  * - horns: horn length, 0.7 is normal (optional)
- * - home: [x, z] inside the area, both between -42 and 42, about 10 away from portals and other dragons
+ * - home: [x, z] in its world's own spots (src/map.ts: -z toward the middle), both between -42 and 42, about 10 away from other dragons
  * - phases: elements it switches through as it calms down, each beaten by its WEAKNESS (optional; element and weakTo are the first)
  * - hits: strong hits it takes to befriend, 3 by default (optional)
  * - crown: a gold crown (optional)

@@ -16,6 +16,7 @@ export { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 export { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 export { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 export { Mesh } from "@babylonjs/core/Meshes/mesh";
+export { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 export { InstancedMesh } from "@babylonjs/core/Meshes/instancedMesh";
 export { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 export { TransformNode } from "@babylonjs/core/Meshes/transformNode";

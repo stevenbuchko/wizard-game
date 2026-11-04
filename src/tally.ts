@@ -2,7 +2,7 @@ import { AREAS, type AreaId } from "./areas";
 import { DRAGONS } from "./dragons";
 
 // How many dragons are left in a world: one dragon per dragon living there, each in its own colors, lit once it's a friend.
-// Drawn on a plain canvas, so the same row sits over a portal, in the screen corner, or later on the lines between worlds.
+// Drawn on a plain canvas, so the same row stands at a world's line and sits in the screen corner.
 
 export const TALLY_W = 512;
 export const TALLY_H = 128;
@@ -44,9 +44,9 @@ export function drawTally(ctx: CanvasRenderingContext2D, area: AreaId, friends: 
   const width = living.length * SLOT + (done ? SLOT : 0) + 24;
   const left = (TALLY_W - width) / 2;
   ctx.clearRect(0, 0, TALLY_W, TALLY_H);
-  // Dark and edged in the world's own portal color, so it never reads as the white locked-portal sign; gold once finished.
+  // Dark and edged in the world's own line color, so it never reads as the white locked-line sign; gold once finished.
   ctx.fillStyle = done ? "#f2b92e" : "rgba(20,24,44,0.78)";
-  ctx.strokeStyle = done ? "#fff6c8" : AREAS[area].portalColor;
+  ctx.strokeStyle = done ? "#fff6c8" : AREAS[area].lineColor;
   ctx.lineWidth = 8;
   ctx.beginPath();
   ctx.roundRect(left, 8, width, 112, 56);

@@ -1,16 +1,23 @@
 import { Vector3 } from "./babylon";
+import { MAP_RADIUS } from "./map";
 import type { Obstacle } from "./world";
 
 // Grid A* around trees, pools and pillars, so a far tap finds a way around clusters instead of stopping at them.
 
 const CELL = 0.75;
-const HALF = 60; // the grid covers -60..60 on both axes
+const HALF = MAP_RADIUS + 2; // the grid covers the whole map on both axes
 const SIZE = Math.ceil((HALF * 2) / CELL);
 
 export class PathGrid {
   private blocked = new Uint8Array(SIZE * SIZE);
 
-  constructor(obstacles: Obstacle[], pad: number) {
+  // offLimits: ground he can't go onto at all, like a world that's still locked.
+  constructor(obstacles: Obstacle[], pad: number, offLimits: (x: number, z: number) => boolean) {
+    for (let cz = 0; cz < SIZE; cz++)
+      for (let cx = 0; cx < SIZE; cx++) {
+        const [wx, wz] = this.world(cx, cz);
+        if (offLimits(wx, wz)) this.blocked[cz * SIZE + cx] = 1;
+      }
     for (const o of obstacles) {
       const r = o.radius + pad;
       const [x0, z0] = this.cell(o.x - r, o.z - r);

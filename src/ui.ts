@@ -111,9 +111,6 @@ export const ui = {
     $("spells").classList.add("cooling");
     setTimeout(() => $("spells").classList.remove("cooling"), seconds * 1000);
   },
-  fade(on: boolean) {
-    $("fade").classList.toggle("on", on);
-  },
   banner(text: string, seconds: number) {
     const b = $("banner");
     b.textContent = text;
