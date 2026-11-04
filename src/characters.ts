@@ -1,4 +1,4 @@
-import { Color3, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from "./babylon";
+import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from "./babylon";
 import type { DragonSpec, Element } from "./dragons";
 import type { Look } from "./save";
 
@@ -103,6 +103,7 @@ export interface Dragon {
   wings: TransformNode[]; // left, right
   meshes: Mesh[];
   skin: StandardMaterial;
+  heart: Mesh; // floats over a friend, so a friend waiting at home never looks wild
   headBaseY: number;
   grump: number; // 100 is grumpy, 0 is a friend
   friend: boolean;
@@ -174,8 +175,28 @@ export function makeDragon(scene: Scene, spec: DragonSpec): Dragon {
     return pivot;
   });
 
+  const heart = MeshBuilder.CreatePlane("heart", { size: 0.9 }, scene);
+  const heartTexture = new DynamicTexture("heart", { width: 128, height: 128 }, scene, false);
+  heartTexture.hasAlpha = true;
+  const ctx = heartTexture.getContext() as unknown as CanvasRenderingContext2D;
+  ctx.font = "100px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("💛", 64, 72);
+  heartTexture.update();
+  const heartMat = new StandardMaterial("heartMat", scene);
+  heartMat.diffuseTexture = heartTexture;
+  heartMat.emissiveColor = Color3.White();
+  heartMat.disableLighting = true;
+  heart.material = heartMat;
+  heart.parent = head;
+  heart.position.y = 1.3 + (spec.crown ? 0.4 : 0);
+  heart.billboardMode = Mesh.BILLBOARDMODE_ALL;
+  heart.isPickable = false;
+  heart.isVisible = false;
+
   return {
-    spec, root, head, wings, meshes, skin,
+    spec, root, head, wings, meshes, skin, heart,
     headBaseY: head.position.y,
     grump: 100,
     friend: false,

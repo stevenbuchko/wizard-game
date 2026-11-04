@@ -107,6 +107,7 @@ let cooldownUntil = 0;
 let nextPuffAt = 0;
 let windup = false;
 let lockedHintUntil = 0;
+const greetedAt = new Map<Dragon, number>();
 let helpAt = new Map<Dragon, number>(); // when each friend next puffs at the dragon he's facing
 let raisedUntil = new Map<Dragon, number>();
 let camCue: { until: number; radius: number; beta: number; alpha?: () => number } | null = null;
@@ -148,6 +149,7 @@ function makeFriend(d: Dragon) {
   d.friend = true;
   d.grump = 0;
   d.skin.emissiveColor = d.skin.diffuseColor.scale(0.2);
+  d.heart.isVisible = true;
 }
 
 // The most recent friends walk with him; on the summit, every friend does.
@@ -511,6 +513,9 @@ function dismount() {
   pushOut(wizard.root.position, WIZARD_RADIUS);
   wizard.root.rotation.y = d.root.rotation.y;
   camCue = { until: now + 1.2, radius: 14, beta: 1.05 };
+  // Landed next to a wild dragon: face it straight away.
+  const wild = dragons.find((w) => w.root.isEnabled() && !w.friend && now > w.calmUntil && flatDistance(wizard.root.position, w.root.position) < reach(w) + 5);
+  if (wild) startBattle(wild);
 }
 
 function collect(star: Star) {
@@ -579,9 +584,17 @@ function updateWizard(dt: number) {
     }
   }
   for (const d of dragons) {
-    if (d.root.isEnabled() && !d.friend && now > d.calmUntil && flatDistance(pos, d.root.position) < reach(d)) {
+    if (!d.root.isEnabled() || flatDistance(pos, d.root.position) >= reach(d)) continue;
+    if (!d.friend && now > d.calmUntil) {
       startBattle(d);
       return;
+    }
+    // A friend waiting at home says hello instead, so he knows it's already his.
+    if (d.friend && now > (greetedAt.get(d) ?? 0)) {
+      greetedAt.set(d, now + 8);
+      d.flinch = 0.6;
+      burst(scene, headOf(d), "gold", 40);
+      sfx.star();
     }
   }
 }
@@ -594,6 +607,12 @@ function updateRide(dt: number) {
   if (landing && p.y < 0.08) {
     dismount();
     return;
+  }
+  // Flying up to a wild dragon lands him, and the face-off starts on the ground.
+  if (!landing && dragons.some((w) => w.root.isEnabled() && !w.friend && now > w.calmUntil && flatDistance(p, w.root.position) < reach(w) + 3)) {
+    landing = true;
+    walkTarget = null;
+    marker.isVisible = false;
   }
   if (walkTarget && !landing) {
     const to = walkTarget.subtract(p);
