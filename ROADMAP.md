@@ -36,9 +36,11 @@ Keep every handle `src/main.ts` uses (`root`, `head`, `wings`, `skin`, `heart`, 
 
 ## 3. Pet-size friends
 
-**Status:** ready
+**Status:** done 2026-11-04 (`aa5d443`)
 
 **Why:** Steven, 2026-11-03: with several friends following, "they take up a lot of the screen and make it hard to move." The camera sits behind the wizard, and full-size dragons beside him fill the frame and hide the ground he taps on.
+
+**As built:** pets hover off his left and right shoulders as the camera sees them, not behind him: behind him put them between him and the camera. Only the dragon he rides grows; the rest fly beside it as pets.
 
 **Build:** friends that follow him shrink to about 40% and fly at about shoulder height a little behind him, wings flapping, like pets. They grow back to full size, smoothly over about half a second, when:
 - he rides one (only the one he rides, or all of them while flying, whichever looks better)
@@ -73,16 +75,20 @@ Things to watch:
 
 ## 5. Dragon home
 
-**Status:** idea, Claude's (2026-11-03), not yet shown to him
+**Status:** ready. Steven asked for it on 2026-11-04 (see Why); the petting and naming are Claude's idea from 2026-11-03, not yet shown to the nephew.
 
-**Why:** once he has collected every dragon, there's little to do with them.
+**Why:** Steven, 2026-11-04: friends waiting at home "look exactly like ones you can fight", so a full-size friend standing in its area looks like a fight that won't start. The 💛 over a friend's head sits off the top of the screen when he walks up close. He asked to "be able to swap them and/or have them in a home". Also, once he has collected every dragon, there's little to do with them.
 
-**Build:** a spot where his friends hang out. He taps a friend to pet it (it purrs and hearts float up), feed it, or give it a name he types, which is saved. If item 4 has shipped, the spot goes in the middle world.
+**Build:**
+- **A home:** friends who aren't following him wait there, not out in their areas, so every dragon standing in an area is one he can fight.
+- **Swapping:** at the home he taps a friend to choose who follows him (3 at most, `MAX_FOLLOWERS`), instead of always the 3 most recent. Save the choice.
+- **Hanging out:** a spot where his friends hang out. He taps a friend to pet it (it purrs and hearts float up), feed it, or give it a name he types, which is saved. If item 4 has shipped, the spot goes in the middle world.
 
-**Done when:** each interaction works on touch, and the names survive a reload.
+**Done when:** no friend waits out in an area, he can choose his 3 followers at the home and the choice survives a reload, each interaction works on touch, and the names survive a reload.
 
 ## Done
 
+- 2026-11-04: pet-size friends: friends following him shrink to 40% and hover beside his shoulders, full size when ridden and in face-offs (`aa5d443`).
 - 2026-11-04: look pass for the world: film finish (ACES, bloom, MSAA, vignette, grade per area), sky with sun and mountains, painted ground with tufts, layered tinted swaying trees (`a501268`).
 - 2026-11-03: Dragon King finale, friends help in face-offs, staff and name picker, fading trees (`bf2f649`).
 - 2026-11-03: friends at home wear a heart and greet him; flying up to a wild dragon lands him into the face-off (`892d152`).
