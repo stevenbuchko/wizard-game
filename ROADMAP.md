@@ -75,7 +75,9 @@ Update the rows when a face-off is won and when a save loads.
 
 ## 5. One big world
 
-**Status:** ready. Steven answered the middle on 2026-11-04.
+**Status:** done 2026-11-04 (`407affc`)
+
+**As built:** the home is a round meadow of radius 34 in the middle of the map, and each world is a quarter of the ring around it out to 118: forest +z, volcano +x, summit -z, snow -x (`at` in `src/areas.ts`; the layout is `src/map.ts`). Each world's dragon spots and stars keep their old coordinates, mapped onto its slice with -z toward the middle, so star ids and saves carry over. The home fades into each world over its outer 10 m, ground and trees both. A glowing line rings the home and runs between neighbouring worlds; he can walk straight from one world into the next. A locked world has a wall of light in its color on all its lines, 🔒 signs at its home line and halfway along each side, and walking or flying into it stops him with the 🔒 banner. Each world's dragons-left row stands on a post just inside the home at its line. Friends not following him fly back to their beds across the map; on the summit, every friend follows, so they fly to him there. Look blends by sampling regions in a 10 m ring around the camera target and easing. The shadow map is a fixed 72 m box that follows him, with only trees within 32 m casting; trees, rocks and sprinkles past the haze are hidden by a null LOD. In the browser at 1180×820, a GPU-synced frame costs 5.3 to 6.6 ms against 4.1 to 5.9 ms for the portal areas at the same spots, and startup is about 0.3 s against 0.1 s. Not checked on the iPad itself. The King's 🔒 sign used to cut off after five dragons; it now fits eight.
 
 **Why:** his words, 2026-11-03: "Where there are all the worlds around it, just one line to separate all the worlds, and then one big world in the middle." Claude's reading (unconfirmed): one continuous map instead of portals, with the worlds side by side, a visible line on the ground between them, and a bigger world in the centre with the others around it.
 
@@ -98,7 +100,7 @@ Things to watch:
 
 **Why:** Steven, 2026-11-04: friends waiting at home "look exactly like ones you can fight", so a full-size friend standing in its area looked like a fight that won't start. The 💛 over a friend's head sits off the top of the screen when he walks up close. He asked to "be able to swap them and/or have them in a home".
 
-**As built:** the home is its own area, a meadow at golden hour (`home` in `src/areas.ts`), through a pink portal in the forest at [-16, 14], in view from the spawn, that opens at 1 friend. A spot in the forest would have shared the screen with three wild dragons and 150 trees, and couldn't fit nine full-size dragons; its own area makes the rule absolute, since no dragon there is wild and no friend is anywhere else. Every dragon has a straw bed in a ring open toward the portal, the King's at the back (`beds` in `src/main.ts`); empty beds hint at friends still to find. Tapping a friend there (any part of it, heart included) brings it along or sends it back to bed; with 3 following, the oldest pick goes back. A new friend joins him and the oldest pick flies off home. The choice is `following` in `src/save.ts`; an old save starts with its 3 most recent friends. When item 5 ships, the home becomes the middle of the big world.
+**As built:** the home is its own area, a meadow at golden hour (`home` in `src/areas.ts`), through a pink portal in the forest at [-16, 14], in view from the spawn, that opens at 1 friend. A spot in the forest would have shared the screen with three wild dragons and 150 trees, and couldn't fit nine full-size dragons; its own area makes the rule absolute, since no dragon there is wild and no friend is anywhere else. Every dragon has a straw bed in a ring open toward the portal, the King's at the back (`beds` in `src/main.ts`); empty beds hint at friends still to find. Tapping a friend there (any part of it, heart included) brings it along or sends it back to bed; with 3 following, the oldest pick goes back. A new friend joins him and the oldest pick flies off home. The choice is `following` in `src/save.ts`; an old save starts with its 3 most recent friends. Since item 5, the home is the middle of the big world.
 
 ## 7. Hanging out with friends
 
@@ -112,6 +114,7 @@ Things to watch:
 
 ## Done
 
+- 2026-11-04: one big world: the home in the middle with every world around it, a glowing line between each, walls of light on locked worlds, the dragons-left rows on posts at the lines, and sky, fog and grade blending as he crosses (`407affc`).
 - 2026-11-04: dragons left in each world: a row of dragons in their own colors inside each portal's ring and in the corner, lit for each friend, gold with a star when a world is done (`ae4bc3f`).
 - 2026-11-04: dragon home: friends not following him wait on straw beds in a meadow through a pink portal in the forest, and tapping one there brings it along or sends it back; the choice is saved (`e45c573`).
 - 2026-11-04: pet-size friends: friends following him shrink to 40% and hover beside his shoulders, full size when ridden and in face-offs (`aa5d443`).
