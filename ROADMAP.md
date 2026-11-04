@@ -96,7 +96,7 @@ Things to watch:
 
 ## 6. Dragon home
 
-**Status:** done 2026-11-04 (`e45c573`). The hanging-out part moved to item 8.
+**Status:** done 2026-11-04 (`e45c573`). The hanging-out part moved to item 12.
 
 **Why:** Steven, 2026-11-04: friends waiting at home "look exactly like ones you can fight", so a full-size friend standing in its area looked like a fight that won't start. The 💛 over a friend's head sits off the top of the screen when he walks up close. He asked to "be able to swap them and/or have them in a home".
 
@@ -120,7 +120,51 @@ Things to watch:
 
 **Done when:** in the browser at 1180×820, a long walk ends with the camera behind him without a jerk; a short sidestep doesn't move it; walking toward the camera doesn't flip it; a drag isn't fought by the follow; riding follows the dragon; and face-offs, the wardrobe and the King's battle frame as before.
 
-## 8. Hanging out with friends
+## 8. Fast on the iPad
+
+**Status:** ready. Steven, 2026-11-04: "it's really slow on ipad now."
+
+**Why:** the one big world (item 5) put every region, dragon and tree in one scene, and the browser already measured it slower than the portal areas; it was never checked on the iPad itself. Every later item adds to the scene, so this goes first.
+
+**Build:** measure first, then cut what costs the most, keeping the look where it's cheap. Measure on the iPad if a session can reach it (the Cloudflare quick tunnel in the vault note), otherwise in the browser with the CPU throttled and the canvas at the iPad's real size. Suspects, from the code as of `c5bca10`:
+- **Two glows:** a `GlowLayer` (`src/main.ts`) and the film pipeline's bloom (`setupFilm` in `src/world.ts`, kernel 64) both blur the frame every frame. One of them is probably enough.
+- **Resolution:** `setHardwareScalingLevel(1 / min(devicePixelRatio, 1.5))` renders an iPad at about 1770×1230 through every post-process. Try 1.0 to 1.25 on touch devices.
+- **MSAA:** `film.samples = 4` on the post-process target. FXAA is much cheaper on iPad GPUs.
+- **Shadows:** a 1024 map re-rendered each frame with trees within 32 m casting. Fewer casters, or a lower refresh rate.
+- **Draw calls:** every dragon is in the scene at once, made of many small meshes. Dragons far from him can be disabled, and static meshes frozen (`freezeWorldMatrix`, `scene.freezeActiveMeshes` where it holds).
+- **Per-frame work:** the 16-point region sampling for the look blend, `updatePresence`, the tree fader.
+
+If the frame rate still falls short, add a quality level chosen at startup from a short frame-time probe, rather than one setting for every device.
+
+**Done when:** before-and-after frame times for the same spots are in the wrap-up (in the middle, inside each world, riding, a face-off with friends helping, the King's battle); the game holds about 60 fps on the iPad, or 30 fps steady if 60 isn't reachable; and the look is still the film look in a side-by-side screenshot.
+
+## 9. Pick which dragon to ride
+
+**Status:** ready. Steven, 2026-11-04: "ability to choose which dragon to ride/switch."
+
+**Why:** the ride button takes whichever following friend is nearest (`toggleRide` in `src/main.ts`), so he can't choose, and he has to land to change.
+
+**Build:** tapping one of the pets beside him mounts that one; while riding, tapping another pet flies him across onto it, with the same burst and whoosh as mounting, and the old one shrinks back to a pet. The ride button keeps working as now (nearest friend, or land). The pets are small and beside his shoulders, so their tap targets may need to be larger than the meshes. Who he can ride is who follows him, chosen at the dragon home.
+
+**Done when:** in the browser at 1180×820, with 3 friends following, tapping each pet mounts that one; tapping another while flying switches without landing; the ride button still mounts and lands; a tap on a pet never also walks him to the spot.
+
+## 10. Endless dragons, or start again
+
+**Status:** waiting on Steven's pick between endless dragons, a restart, or both (asked 2026-11-04).
+
+**Why:** Steven, 2026-11-04: "somehow have unlimited dragons and/or ability to restart the game." Once every dragon is a friend there is nothing left to befriend.
+
+**Build:** to be written once he picks. Things a build will meet: friends live on beds in a ring at the home (`beds` in `src/main.ts`), sized for the 9 dragons; the dragons-left rows (`drawTally` in `src/tally.ts`) assume a fixed count per world; the King is the ending. A restart wipes the save (`src/save.ts`), and a 7-year-old can't be asked to confirm in words.
+
+## 11. More to explore
+
+**Status:** waiting on what "more" means (asked 2026-11-04).
+
+**Why:** Steven, 2026-11-04: "more world exploration."
+
+**Build:** to be written once the question is answered. Whatever it is, it lands after item 8, since adding to the world adds to the frame cost.
+
+## 12. Hanging out with friends
 
 **Status:** not shown to the nephew yet. Claude's idea from 2026-11-03; check he wants it before building.
 
