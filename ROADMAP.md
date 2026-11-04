@@ -96,13 +96,29 @@ Things to watch:
 
 ## 6. Dragon home
 
-**Status:** done 2026-11-04 (`e45c573`). The hanging-out part moved to item 7.
+**Status:** done 2026-11-04 (`e45c573`). The hanging-out part moved to item 8.
 
 **Why:** Steven, 2026-11-04: friends waiting at home "look exactly like ones you can fight", so a full-size friend standing in its area looked like a fight that won't start. The 💛 over a friend's head sits off the top of the screen when he walks up close. He asked to "be able to swap them and/or have them in a home".
 
 **As built:** the home is its own area, a meadow at golden hour (`home` in `src/areas.ts`), through a pink portal in the forest at [-16, 14], in view from the spawn, that opens at 1 friend. A spot in the forest would have shared the screen with three wild dragons and 150 trees, and couldn't fit nine full-size dragons; its own area makes the rule absolute, since no dragon there is wild and no friend is anywhere else. Every dragon has a straw bed in a ring open toward the portal, the King's at the back (`beds` in `src/main.ts`); empty beds hint at friends still to find. Tapping a friend there (any part of it, heart included) brings it along or sends it back to bed; with 3 following, the oldest pick goes back. A new friend joins him and the oldest pick flies off home. The choice is `following` in `src/save.ts`; an old save starts with its 3 most recent friends. Since item 5, the home is the middle of the big world.
 
-## 7. Hanging out with friends
+## 7. Follow camera
+
+**Status:** ready
+
+**Why:** Steven, 2026-11-04: the camera should turn to show what the wizard is looking at. Today it follows his position but turns only when he drags it, or for a scripted shot (`camCue` in `src/main.ts`).
+
+**Build:** a lazy follow camera, not one locked behind him. Tap-to-walk is why: with a locked camera, tapping a spot to the side turns him, the camera swings, and the spot he tapped slides across the screen. Swinging cameras also make kids feel carsick. In the per-frame camera code (around `Vector3.LerpToRef(camera.target, ...)` in `src/main.ts`):
+- **Swing only while he's moving:** ease `camera.alpha` toward `behind(wizard.root.rotation.y)` at a capped rate, about 90° a second, slowing as it lines up. Standing still, it stays where it is.
+- **Dead zone:** heading differences under about 30° don't move it, so small steps don't wobble the view.
+- **No flip toward the camera:** if he walks back toward the screen (heading more than about 120° from the view), hold still instead of spinning 180°.
+- **His drag wins:** while a finger turns the camera, and for about 2 seconds after, the follow pauses (the touch code that tells taps from drags, near "A quick touch that barely moves").
+- **Riding and flying** follow the dragon's heading more tightly, since steering blind is hard.
+- **Scripted shots win:** no follow while a `camCue` is active, or in the face-off or the wardrobe.
+
+**Done when:** in the browser at 1180×820, a long walk ends with the camera behind him without a jerk; a short sidestep doesn't move it; walking toward the camera doesn't flip it; a drag isn't fought by the follow; riding follows the dragon; and face-offs, the wardrobe and the King's battle frame as before.
+
+## 8. Hanging out with friends
 
 **Status:** not shown to the nephew yet. Claude's idea from 2026-11-03; check he wants it before building.
 
