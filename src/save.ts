@@ -13,12 +13,15 @@ export interface SaveData {
   look: Look;
   muted: boolean;
   name: string; // shown on the title screen
+  following: string[]; // the friends he chose to walk with him, oldest choice first; the rest wait at home
 }
+
+export const MAX_FOLLOWERS = 3;
 
 const KEY = "wizard-game-v1";
 
 function defaults(): SaveData {
-  return { friends: [], stars: [], look: { robe: "#29459e", crystal: "#66e6ff", hat: "hood", staff: "wood" }, muted: false, name: "" };
+  return { friends: [], stars: [], look: { robe: "#29459e", crystal: "#66e6ff", hat: "hood", staff: "wood" }, muted: false, name: "", following: [] };
 }
 
 export function load(): SaveData {
@@ -27,7 +30,10 @@ export function load(): SaveData {
     const raw = localStorage.getItem(KEY);
     if (!raw) return d;
     const saved = JSON.parse(raw) as Partial<SaveData>;
-    return { ...d, ...saved, look: { ...d.look, ...saved.look } };
+    const friends = saved.friends ?? [];
+    // A save from before he could choose keeps the most recent friends walking with him.
+    const following = (saved.following ?? friends.slice(-MAX_FOLLOWERS)).filter((id) => friends.includes(id));
+    return { ...d, ...saved, look: { ...d.look, ...saved.look }, following };
   } catch {
     return d;
   }

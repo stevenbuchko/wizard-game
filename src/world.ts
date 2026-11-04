@@ -643,6 +643,23 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
     }
   }
 
+  if (spec.beds) {
+    const straw = material(scene, hex(spec.beds));
+    const hay = material(scene, hex(spec.beds).scale(0.8));
+    for (const p of keepClear) {
+      const rim = own(MeshBuilder.CreateTorus("bed", { diameter: 5.5, thickness: 1.1, tessellation: 24 }, scene));
+      rim.material = straw;
+      rim.scaling.y = 0.45;
+      rim.position.set(p.x, 0.2, p.z);
+      rim.receiveShadows = true;
+      const mat = own(MeshBuilder.CreateDisc("hay", { radius: 2.4, tessellation: 24 }, scene));
+      mat.material = hay;
+      mat.rotation.x = Math.PI / 2;
+      mat.position.set(p.x, 0.08, p.z);
+      mat.receiveShadows = true;
+    }
+  }
+
   scatterTufts(scene, spec, root, vary, (x, z) => clear(x, z, 3) && obstacles.every((o) => Math.hypot(x - o.x, z - o.z) > o.radius + 0.4));
 
   const stoneMat = material(scene, new Color3(0.55, 0.53, 0.5));

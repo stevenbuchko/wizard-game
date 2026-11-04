@@ -1,4 +1,4 @@
-export type AreaId = "forest" | "snow" | "volcano" | "summit";
+export type AreaId = "forest" | "snow" | "volcano" | "summit" | "home";
 
 // The film finish. Saturation and densities run -100 to 100; hues are degrees, tinting the highlights and the shadows.
 export interface Grade {
@@ -30,6 +30,7 @@ export interface AreaSpec {
   sprinkle: string; // flowers, ice crystals or embers
   sprinkleGlows?: boolean;
   lava?: boolean;
+  beds?: string; // a straw bed at every dragon's spot, for the home
   grade: Grade;
   portalColor: string; // the swirl he sees when a portal leads here
   spawn: [number, number];
@@ -59,6 +60,7 @@ export const AREAS: Record<AreaId, AreaSpec> = {
       { to: "snow", at: [-36, 32], needs: 2 },
       { to: "volcano", at: [36, 32], needs: 4 },
       { to: "summit", at: [0, -40], needs: 8 },
+      { to: "home", at: [-16, 14], needs: 1 },
     ],
     stars: [[10, 9, 10], [-15, 10, -8], [20, 9, -28], [-30, 11, 20], [30, 9, 12]],
   },
@@ -131,5 +133,27 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     spawn: [0, -34],
     portals: [{ to: "forest", at: [0, -40], needs: 0 }],
     stars: [[0, 14, -8], [-26, 10, -18], [26, 10, -18], [-22, 11, 28], [22, 11, 28]],
+  },
+  // Where his friends wait when they aren't walking with him, so no friend stands about in an area looking wild.
+  home: {
+    id: "home",
+    sky: "#f6c89a",
+    skyTop: "#6f86d4",
+    sun: "#fff0c0",
+    mountains: ["#b28fae", "#6f9064"],
+    ground: "#79a84a",
+    floor: "grass",
+    tuft: "#9bcf5a",
+    trunk: "#6b4a2a",
+    crown: "#4f8f3a",
+    trees: 40,
+    rock: "#a39a8a",
+    sprinkle: "#ff8fc8",
+    beds: "#d9b45a",
+    grade: { exposure: 1.25, contrast: 1.1, saturation: 35, highlights: [35, 30], shadows: [280, 25], bloom: 0.8 },
+    portalColor: "#ff8fc8",
+    spawn: [0, -34],
+    portals: [{ to: "forest", at: [0, -40], needs: 0 }],
+    stars: [],
   },
 };

@@ -1,4 +1,5 @@
 import {
+  type AbstractMesh,
   ArcRotateCamera,
   Color3,
   Engine,
@@ -17,7 +18,7 @@ import { bolt, burst, trail, type Sparkle } from "./effects";
 import { PathGrid } from "./path";
 import { buildArea, setupFilm, setupLights, WORLD_RADIUS, type Area, type Star } from "./world";
 import { setBattleMusic, setMuted, sfx, startMusic, unlockAudio } from "./audio";
-import { load, save } from "./save";
+import { load, MAX_FOLLOWERS, save } from "./save";
 import { ui } from "./ui";
 
 const WALK_SPEED = 5;
@@ -31,7 +32,6 @@ const FRIEND_WEAK_HIT = 3;
 const SPELL_COOLDOWN = 0.7;
 const SHIELD_TIME = 2.5;
 const HEARTS = 3;
-const MAX_FOLLOWERS = 3; // the most recent friends walk with him; the rest wait at home
 const WIZARD_RADIUS = 0.4;
 const SADDLE = new Vector3(0, 2.55, -0.3);
 const PET_SIZE = 0.4; // friends walking with him shrink to pets, so they don't fill the screen
@@ -63,6 +63,17 @@ const dragons = DRAGONS.map((spec) => {
   if (data.friends.includes(spec.id)) makeFriend(d);
   return d;
 });
+
+// Each friend's bed at home: a ring open toward where he walks in, with the biggest at the back so it hides no one.
+const beds = new Map<Dragon, Vector3>();
+{
+  const ring = dragons.filter((d) => (d.spec.size ?? 1) < 2);
+  ring.forEach((d, i) => {
+    const a = -2.6 + (5.2 * i) / Math.max(1, ring.length - 1);
+    beds.set(d, new Vector3(Math.sin(a) * 22, 0, 4 + Math.cos(a) * 22));
+  });
+  dragons.filter((d) => !ring.includes(d)).forEach((d, i) => beds.set(d, new Vector3(i * 14, 0, 36)));
+}
 
 const camera = new ArcRotateCamera("camera", -Math.PI / 2, 1.05, 14, new Vector3(0, 1.5, 0), scene);
 camera.attachControl(canvas, true);
@@ -121,6 +132,7 @@ const greetedAt = new Map<Dragon, number>();
 let helpAt = new Map<Dragon, number>(); // when each friend next puffs at the dragon he's facing
 let raisedUntil = new Map<Dragon, number>();
 const petness = new Map<Dragon, number>(); // 0 is full size, 1 is pet size
+const leaving = new Set<Dragon>(); // friends flying off home
 let camCue: { until: number; radius: number; beta: number; alpha?: () => number } | null = null;
 
 // Each effect runs once per frame until it returns false.
@@ -163,10 +175,10 @@ function makeFriend(d: Dragon) {
   d.heart.isVisible = true;
 }
 
-// The most recent friends walk with him; on the summit, every friend does.
+// The friends he chose walk with him; on the summit, every friend does.
 function followers(): Dragon[] {
-  const all = data.friends.map((id) => dragons.find((d) => d.spec.id === id)).filter((d): d is Dragon => !!d);
-  return currentArea === "summit" ? all : all.slice(-MAX_FOLLOWERS);
+  const ids = currentArea === "summit" ? data.friends : data.following;
+  return ids.map((id) => dragons.find((d) => d.spec.id === id)).filter((d): d is Dragon => !!d?.friend);
 }
 
 // A dragon with phases (the King) switches element each time it calms down another step.
@@ -194,10 +206,41 @@ function reach(d: Dragon): number {
   return FACE_OFF_DISTANCE + Math.max(0, (d.spec.size ?? 1) - 1.5) * 14;
 }
 
-// A dragon is in the scene if it lives in this area or is walking with him.
+// Wild dragons stay in their area and friends not walking with him wait at home, so every dragon out in an area is one to face.
 function updatePresence() {
   const walking = followers();
-  for (const d of dragons) d.root.setEnabled(walking.includes(d) || d.spec.area === currentArea);
+  for (const d of dragons) d.root.setEnabled(walking.includes(d) || leaving.has(d) || (d.friend ? currentArea === "home" : d.spec.area === currentArea));
+}
+
+// A friend he stops walking with flies off home, rather than standing about out here looking wild.
+function flyHome(d: Dragon) {
+  leaving.add(d);
+  sfx.whoosh();
+  effects.push((dt) => {
+    if (!leaving.has(d)) return false;
+    d.root.position.y += dt * 12;
+    if (d.root.position.y < 30) return true;
+    leaving.delete(d);
+    updatePresence();
+    return false;
+  });
+}
+
+// At home, tapping a friend has it walk with him, or go back to its bed. The oldest choice makes room for a new one.
+function swap(d: Dragon) {
+  if (currentArea !== "home" || !d.friend) return;
+  const i = data.following.indexOf(d.spec.id);
+  if (i >= 0) {
+    data.following.splice(i, 1);
+    sfx.tap();
+  } else {
+    data.following.push(d.spec.id);
+    if (data.following.length > MAX_FOLLOWERS) data.following.shift();
+    sfx.friend();
+  }
+  save(data);
+  d.flinch = 0.6;
+  burst(scene, headOf(d), "gold", 40);
 }
 
 function pushOut(p: Vector3, radius: number) {
@@ -239,7 +282,8 @@ function enterArea(id: AreaId, from?: AreaId) {
   area?.dispose();
   currentArea = id;
   const spec = AREAS[id];
-  const homes = DRAGONS.filter((d) => d.area === id).map((d) => new Vector3(d.home[0], 0, d.home[1]));
+  leaving.clear();
+  const homes = id === "home" ? [...beds.values()] : DRAGONS.filter((d) => d.area === id).map((d) => new Vector3(d.home[0], 0, d.home[1]));
   area = buildArea(scene, spec, shadows, homes, data.stars);
   grade(spec.grade);
   grid = new PathGrid(area.obstacles, WIZARD_RADIUS + 0.1);
@@ -257,7 +301,8 @@ function enterArea(id: AreaId, from?: AreaId) {
     if (walking.includes(d)) continue;
     petness.set(d, 0);
     d.root.scaling.setAll(d.fullSize);
-    d.root.position.set(d.spec.home[0], 0, d.spec.home[1]);
+    if (d.friend) d.root.position.copyFrom(beds.get(d)!);
+    else d.root.position.set(d.spec.home[0], 0, d.spec.home[1]);
     d.root.rotation.y = yawTo(d.root.position, spawn);
   }
   const yaw = wizard.root.rotation.y;
@@ -423,13 +468,19 @@ function friendHelp(f: Dragon, target: Dragon) {
 }
 
 function befriend(d: Dragon) {
+  const before = followers();
   makeFriend(d);
   helpAt.clear();
   data.friends.push(d.spec.id);
+  // A new friend walks with him, and the oldest choice flies home to make room.
+  data.following.push(d.spec.id);
+  if (data.following.length > MAX_FOLLOWERS) data.following.shift();
   save(data);
   endBattle();
   mode = "explore";
   burst(scene, headOf(d), "gold", 120);
+  const walking = followers();
+  before.filter((f) => !walking.includes(f) && currentArea !== "home").forEach(flyHome);
   updatePresence();
   const count = data.friends.length;
   ui.friends(count, dragons.length);
@@ -698,7 +749,23 @@ function updateDragons(dt: number) {
       if (foe) turnToward(d.root, foe.root.position, dt, 4);
     } else if (d === foe) {
       turnToward(d.root, wizard.root.position, dt, 5);
+    } else if (d.friend && currentArea === "home" && !leaving.has(d)) {
+      // Sent back to its bed, it walks there, then turns to watch him.
+      const bed = beds.get(d)!;
+      const to = bed.subtract(d.root.position);
+      to.y = 0;
+      const dist = to.length();
+      if (dist > 0.8) {
+        moving = true;
+        d.root.position.addInPlace(to.normalize().scale(Math.min(dist, Math.min(dist * 1.5, 8) * dt)));
+        turnToward(d.root, bed, dt, 4);
+      } else {
+        turnToward(d.root, wizard.root.position, dt, 1.5);
+      }
+      d.root.position.y += (0 - d.root.position.y) * Math.min(1, dt * 3);
+      if (d.root.position.y > 0.5) moving = true;
     }
+    if (leaving.has(d)) moving = true;
     if (d === riding && d.root.position.y > 0.5) moving = true;
     d.phase += dt * (moving ? 7 : 1.6);
     const flap = 0.35 + Math.sin(d.phase) * (moving ? 0.5 : 0.25);
@@ -763,6 +830,10 @@ function updateCamera(dt: number) {
   camera.targetScreenOffset.set((mode === "wardrobe" ? -1.8 : 0) + (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
 }
 
+// Any part of a dragon, its heart included, counts as tapping it.
+const pickable = new Map<AbstractMesh, Dragon>();
+for (const d of dragons) for (const m of [...d.meshes, d.heart]) pickable.set(m, d);
+
 // A quick touch that barely moves is a tap to walk or fly; anything else turns or zooms the camera.
 let down: { x: number; y: number; t: number } | null = null;
 scene.onPointerObservable.add((info) => {
@@ -772,6 +843,14 @@ scene.onPointerObservable.add((info) => {
   const tap = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 400;
   down = null;
   if (!tap || mode !== "explore" || landing) return;
+  if (currentArea === "home" && !riding) {
+    const hit = scene.pick(scene.pointerX, scene.pointerY, (m) => pickable.has(m) && m.isEnabled() && m.isVisible);
+    const d = hit?.pickedMesh && pickable.get(hit.pickedMesh);
+    if (d && d.friend) {
+      swap(d);
+      return;
+    }
+  }
   const pick = scene.pick(scene.pointerX, scene.pointerY, (m) => m === area.ground);
   if (pick?.hit && pick.pickedPoint) walkTo(pick.pickedPoint);
 });
@@ -840,4 +919,4 @@ window.addEventListener("resize", () => engine.resize());
 if (import.meta.env.PROD && "serviceWorker" in navigator) void navigator.serviceWorker.register("sw.js");
 
 // Exposed for play-testing from the browser console.
-Object.assign(window, { game: { walkTo, cast, toggleRide, travel, dragons, wizard, data, get area() { return area; }, get mode() { return mode; }, camera } });
+Object.assign(window, { game: { walkTo, cast, toggleRide, travel, swap, dragons, wizard, data, get area() { return area; }, get mode() { return mode; }, get currentArea() { return currentArea; }, camera } });
