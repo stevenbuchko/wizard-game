@@ -23,6 +23,7 @@ import {
   Vector3,
 } from "./babylon";
 import { AREAS, type AreaId, type AreaSpec, type Grade } from "./areas";
+import { drawTally, TALLY_H, TALLY_W } from "./tally";
 
 export const WORLD_RADIUS = 52;
 
@@ -46,7 +47,7 @@ export interface Portal {
   x: number;
   z: number;
   disc: Mesh;
-  setFriends(count: number): void;
+  setFriends(friends: string[]): void;
 }
 
 export interface Star {
@@ -708,6 +709,26 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
     sign.position.y = 6;
     sign.material = signMat;
     sign.billboardMode = Mesh.BILLBOARDMODE_Y;
+    sign.metadata = { sign: true };
+
+    // The dragons living in the world it leads to, inside the top of the ring where the play camera sees it, facing the way he
+    // comes from; the home has no wild dragons, so its portal has none.
+    const tallyTexture = new DynamicTexture("tally", { width: TALLY_W, height: TALLY_H }, scene, false);
+    tallyTexture.hasAlpha = true;
+    const tallyMat = new StandardMaterial("tallyMat", scene);
+    tallyMat.diffuseTexture = tallyTexture;
+    tallyMat.emissiveColor = Color3.White();
+    tallyMat.disableLighting = true;
+    tallyMat.backFaceCulling = false;
+    const tally = own(MeshBuilder.CreatePlane("tally", { width: 4.4, height: 1.1 }, scene));
+    tally.parent = node;
+    tally.position.set(0, 3.9, 0.35);
+    tally.rotation.y = Math.PI;
+    tally.material = tallyMat;
+    tally.isPickable = false;
+    tally.metadata = { sign: true };
+    parts.push(tally); // fades with the portal
+    tally.isVisible = p.to !== "home";
 
     return {
       to: p.to,
@@ -715,12 +736,17 @@ export function buildArea(scene: Scene, spec: AreaSpec, shadows: ShadowGenerator
       x,
       z,
       disc,
-      setFriends(count: number) {
+      setFriends(friends: string[]) {
+        const count = friends.length;
         const open = count >= p.needs;
         swirl.emissiveColor = open ? hex(AREAS[p.to].portalColor) : new Color3(0.15, 0.15, 0.18);
         swirl.diffuseColor = swirl.emissiveColor;
         sign.isVisible = !open;
         if (!open) drawSign(signTexture, p.needs, count);
+        if (p.to !== "home") {
+          drawTally(tallyTexture.getContext() as unknown as CanvasRenderingContext2D, p.to, friends);
+          tallyTexture.update();
+        }
       },
     };
   });

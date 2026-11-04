@@ -48,8 +48,9 @@ const shadows = setupLights(scene);
 const glow = new GlowLayer("glow", scene);
 glow.intensity = 0.6;
 // A portal or tree fading out of his way fades its glow too, or the bloom would hide him in light.
+// Signs are white emissive only to show their pictures unlit; they block the glow behind them rather than glow themselves.
 glow.customEmissiveColorSelector = (mesh, _subMesh, material, color) => {
-  const e = (material as StandardMaterial).emissiveColor ?? Color3.Black();
+  const e = mesh.metadata?.sign ? Color3.Black() : ((material as StandardMaterial).emissiveColor ?? Color3.Black());
   color.set(e.r * mesh.visibility, e.g * mesh.visibility, e.b * mesh.visibility, material.alpha);
 };
 
@@ -314,7 +315,8 @@ function enterArea(id: AreaId, from?: AreaId) {
     d.root.rotation.y = yaw;
   });
   updatePresence();
-  area.portals.forEach((p) => p.setFriends(data.friends.length));
+  area.portals.forEach((p) => p.setFriends(data.friends));
+  ui.tally(id, data.friends);
   camera.target.copyFrom(spawn).addInPlace(new Vector3(0, 1.5, 0));
   camera.alpha = behind(yaw);
 }
@@ -484,7 +486,8 @@ function befriend(d: Dragon) {
   updatePresence();
   const count = data.friends.length;
   ui.friends(count, dragons.length);
-  area.portals.forEach((p) => p.setFriends(count));
+  area.portals.forEach((p) => p.setFriends(data.friends));
+  ui.tally(currentArea, data.friends, true);
   if (count === dragons.length) {
     sfx.celebrate();
     ui.banner("🎉🐉🎉", 4);

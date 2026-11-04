@@ -22,6 +22,9 @@
       #friends span.got { opacity: 1; filter: none; }
       #stars { color: #fff; font-weight: 600; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4); }
       #mute { pointer-events: auto; width: 54px; height: 54px; border-radius: 50%; border: 3px solid #fff; background: rgba(0, 0, 0, 0.3); font-size: 26px; }
+      #tally { position: fixed; top: calc(76px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); width: 240px; height: 60px; pointer-events: none; transform-origin: right center; }
+      #tally.pop { animation: tallyPop 0.6s ease-out; }
+      @keyframes tallyPop { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1); } }
       #grump { position: fixed; top: calc(76px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; font-size: 32px; pointer-events: none; }
       #grumpBar { width: 280px; height: 22px; border-radius: 11px; background: rgba(0, 0, 0, 0.35); border: 3px solid #fff; overflow: hidden; }
       #grumpFill { height: 100%; width: 100%; background: #e24b4a; transition: width 0.3s; }
@@ -64,6 +67,7 @@
       <div id="hearts"></div>
       <div id="hudRight"><div id="friends"></div><div id="stars"></div><button id="mute" aria-label="Sound">🔊</button></div>
     </div>
+    <canvas id="tally" width="512" height="128"></canvas>
     <div id="grump" class="hidden"><span>😠</span><div id="grumpBar"><div id="grumpFill"></div></div><span>😊</span></div>
     <div id="spells" class="hidden">
       <button data-spell="fire" aria-label="Fire">🔥</button>

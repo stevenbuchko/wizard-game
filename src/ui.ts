@@ -1,5 +1,7 @@
 import type { Spell } from "./characters";
+import type { AreaId } from "./areas";
 import type { Look } from "./save";
+import { drawTally, dragonsIn } from "./tally";
 
 // The HTML overlay. Everything is icons, no words, because he may not read yet.
 
@@ -88,6 +90,16 @@ export const ui = {
   },
   friends(n: number, total: number) {
     $("friends").innerHTML = Array.from({ length: total }, (_, i) => `<span class="${i < n ? "got" : ""}">🐉</span>`).join("");
+  },
+  // The dragons in the world he's in, under the sound button; the home has no wild dragons, so none there.
+  tally(area: AreaId, friends: string[], pop = false) {
+    const c = $("tally") as HTMLCanvasElement;
+    c.classList.toggle("hidden", !dragonsIn(area).length);
+    drawTally(c.getContext("2d")!, area, friends);
+    if (!pop) return;
+    c.classList.remove("pop");
+    void c.offsetWidth;
+    c.classList.add("pop");
   },
   stars(n: number) {
     $("stars").textContent = `⭐ ${n}`;
