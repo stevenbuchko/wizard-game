@@ -139,6 +139,11 @@ let helpAt = new Map<Dragon, number>(); // when each friend next puffs at the dr
 let raisedUntil = new Map<Dragon, number>();
 const petness = new Map<Dragon, number>(); // 0 is full size, 1 is pet size
 let camCue: { until: number; radius: number; beta: number; alpha?: () => number } | null = null;
+let lining = false; // the camera is easing round behind him
+let travelFor = 0;
+let spin = 0; // how fast the camera is turning, in radians a second
+const held = new Set<number>(); // fingers on the screen
+let dragUntil = 0;
 
 // Each effect runs once per frame until it returns false.
 const effects: Array<(dt: number) => boolean> = [];
@@ -891,10 +896,42 @@ function updateCamera(dt: number) {
     camera.radius += (camCue.radius - camera.radius) * Math.min(1, dt * 3);
     camera.beta += (camCue.beta - camera.beta) * Math.min(1, dt * 3);
   }
+  followHeading(dt);
   shake = Math.max(0, shake - dt * 1.5);
   // While dressing, he stands left of center, clear of the picker on the right.
   camera.targetScreenOffset.set((mode === "wardrobe" ? -1.8 : 0) + (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
 }
+
+// The camera eases round behind him only while he travels, and slowly: locked behind him, a tap off to the side
+// would swing the view and slide the tapped spot across the screen, and fast swings make kids carsick.
+function followHeading(dt: number) {
+  const free = mode === "explore" && !(camCue && now < camCue.until) && !held.size && now > dragUntil;
+  travelFor = walkTarget && !landing ? travelFor + dt : 0;
+  // A finger or a scripted shot takes over at once.
+  if (!free) {
+    lining = false;
+    spin = 0;
+    return;
+  }
+  const goal = behind(riding ? riding.root.rotation.y : wizard.root.rotation.y);
+  const off = Math.atan2(Math.sin(goal - camera.alpha), Math.cos(goal - camera.alpha));
+  const deg = (Math.abs(off) * 180) / Math.PI;
+  // A step of a few metres to the side is over before the follow starts. Walking back toward the screen would spin
+  // the view right round, so it holds still instead. Small turns don't wobble the view, but once it starts turning
+  // it lines up all the way. Steering a dragon blind is hard, so riding follows sooner and tighter.
+  if (travelFor < (riding ? 0.3 : 0.7) || deg > 120) lining = false;
+  else if (deg > (riding ? 15 : 30)) lining = true;
+  else if (deg < 1) lining = false;
+  // Starting and stopping ease in and out, so the view never jerks.
+  const want = lining ? Math.min(riding ? 2.4 : Math.PI / 2, Math.abs(off) * (riding ? 4 : 3)) : 0;
+  const ease = (riding ? 8 : 5) * dt;
+  spin = want > spin ? Math.min(want, spin + ease) : Math.max(want, spin - ease);
+  camera.alpha += Math.sign(off) * Math.min(Math.abs(off), spin * dt);
+}
+
+// A finger turning the camera wins over the follow, for a while after it lifts too.
+canvas.addEventListener("pointerdown", (e) => held.add(e.pointerId));
+for (const type of ["pointerup", "pointercancel"]) window.addEventListener(type, (e) => held.delete((e as PointerEvent).pointerId));
 
 // Any part of a dragon, its heart included, counts as tapping it.
 const pickable = new Map<AbstractMesh, Dragon>();
@@ -905,9 +942,11 @@ let down: { x: number; y: number; t: number } | null = null;
 scene.onPointerObservable.add((info) => {
   const e = info.event as PointerEvent;
   if (info.type === PointerEventTypes.POINTERDOWN) down = { x: e.clientX, y: e.clientY, t: performance.now() };
-  if (info.type !== PointerEventTypes.POINTERUP || !down) return;
-  const tap = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 400;
+  if (info.type !== PointerEventTypes.POINTERUP) return;
+  // The second finger of a pinch finds no touch down.
+  const tap = !!down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 400;
   down = null;
+  if (!tap) dragUntil = now + 2;
   if (!tap || mode !== "explore" || landing) return;
   if (currentArea === "home" && !riding) {
     const hit = scene.pick(scene.pointerX, scene.pointerY, (m) => pickable.has(m) && m.isEnabled() && m.isVisible);
