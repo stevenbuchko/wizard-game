@@ -4,9 +4,39 @@ Features to build, in order. Each session builds the top item that isn't done, f
 
 New ideas, his or Steven's, go in as a new item where they rank. Write each one so a session that knows nothing else can build it.
 
-## 1. Pet-size friends
+## 1. Look pass: lighting and the world
 
 **Status:** next
+
+**Why:** he wants it to look better (Steven, 2026-11-04). This pass changes every frame and none of it is replaced if real models are bought later, so it goes first.
+
+**Build:**
+- **Film finish:** a `DefaultRenderingPipeline` with ACES tone mapping, bloom on spells and crystals, anti-aliasing, a light vignette, and a color grade per area.
+- **Sky:** a gradient sky dome per area with a sun glow, and a ring of distant mountain silhouettes on the horizon, instead of a flat clear color fading into fog.
+- **Ground:** procedural textures instead of one flat color: grass with dirt patches in the forest, sparkling snow, cracked ash with glowing seams in the volcano, crystal stone on the summit. Scatter grass tufts or the area's equivalent.
+- **Trees:** layered crowns, a slight color difference per tree (per-instance color), and a gentle sway.
+
+Keep the fade in `fader` (`src/world.ts`) working with any new tree meshes.
+
+**Done when:** every area has been seen in the browser at 1180×820, before-and-after screenshots are in the wrap-up, the frame rate holds, and the download stays under about 2 MB.
+
+## 2. Look pass: the dragons and the wizard
+
+**Status:** waiting on the models decision. Steven is choosing models with him from a shortlist (2026-11-04). If a model is picked, this item becomes "swap in the models", and the work below is skipped, since a model replaces the primitive characters entirely.
+
+**Why:** the characters are what he looks at most, and they're still primitives.
+
+**Build:** in `src/characters.ts`, without bought models:
+- **Dragons:** smooth tapered neck and tail (tubes along a curve) instead of chains of spheres, a jaw with teeth, eyes with pupils that blink, wings with bones and a curved membrane, claws, a scale texture, and legs that step when walking.
+- **Wizard:** a flowing robe, arms that raise the staff to cast, and a beard or hair.
+
+Keep every handle `src/main.ts` uses (`root`, `head`, `wings`, `skin`, `heart`, `crystal`), since the game logic drives them.
+
+**Done when:** every dragon and the wizard look right from the play camera, the face-off camera and the wardrobe close-up, and the frame rate holds.
+
+## 3. Pet-size friends
+
+**Status:** ready
 
 **Why:** Steven, 2026-11-03: with several friends following, "they take up a lot of the screen and make it hard to move." The camera sits behind the wizard, and full-size dragons beside him fill the frame and hide the ground he taps on.
 
@@ -24,7 +54,7 @@ The size lives on `d.root.scaling`, which is `1.3 × spec.size` today (`makeDrag
 - Riding, a face-off and the summit battle all show full-size dragons.
 - Tested at 1180×820 in the browser.
 
-## 2. One big world
+## 4. One big world
 
 **Status:** waiting on his answer: which world goes in the middle (Steven's task in the vault note)
 
@@ -40,13 +70,13 @@ Things to watch:
 
 **Done when:** he can walk from the middle into every unlocked world without a loading fade, locked lines stop him and say why, the King still needs 8 friends, an old save loads with its friends and stars, and the frame rate holds.
 
-## 3. Dragon home
+## 5. Dragon home
 
 **Status:** idea, Claude's (2026-11-03), not yet shown to him
 
 **Why:** once he has collected every dragon, there's little to do with them.
 
-**Build:** a spot where his friends hang out. He taps a friend to pet it (it purrs and hearts float up), feed it, or give it a name he types, which is saved. If item 2 has shipped, the spot goes in the middle world.
+**Build:** a spot where his friends hang out. He taps a friend to pet it (it purrs and hearts float up), feed it, or give it a name he types, which is saved. If item 4 has shipped, the spot goes in the middle world.
 
 **Done when:** each interaction works on touch, and the names survive a reload.
 
@@ -57,4 +87,4 @@ Things to watch:
 
 ## On hold
 
-- **Real models:** rigged dragon and wizard models to replace the primitives. On hold by Steven, 2026-11-03. Match the dragon he picked: Figma concepts file https://www.figma.com/design/bQZMzFrAXm36eTH8pu1wml, node 4:3.
+- **Real models:** rigged dragon and wizard models to replace the primitives. On hold by Steven, 2026-11-03; on 2026-11-04 he asked for a shortlist to pick from with the nephew, which decides item 2. Match the dragon he picked: Figma concepts file https://www.figma.com/design/bQZMzFrAXm36eTH8pu1wml, node 4:3.
