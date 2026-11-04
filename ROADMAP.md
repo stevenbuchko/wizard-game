@@ -104,7 +104,9 @@ Things to watch:
 
 ## 7. Follow camera
 
-**Status:** ready
+**Status:** done 2026-11-04 (`2b1c5ce`)
+
+**As built:** `followHeading` in `src/main.ts`. On foot it waits 0.7 s into a walk before following: the 30° dead zone alone let a 2 m step sideways turn the view 32°. Once a turn starts it lines up to within 1°, so a long walk ends right behind him. The turn speed eases in and out (about 0.3 s up to 90°/s), since starting at full rate was a visible jolt. Riding follows from 0.3 s and 15°, at up to about 140°/s. A finger on the canvas pauses it, and so does 2 s after any touch that wasn't a tap. Testing tip: synthetic touch-type pointer moves make Babylon report a pointer up and a tap, which walks him to the spot under the finger; drive drags with `pointerType: 'mouse'` events instead.
 
 **Why:** Steven, 2026-11-04: the camera should turn to show what the wizard is looking at. Today it follows his position but turns only when he drags it, or for a scripted shot (`camCue` in `src/main.ts`).
 
@@ -130,6 +132,7 @@ Things to watch:
 
 ## Done
 
+- 2026-11-04: follow camera: the view eases round behind him while he walks or flies, at up to 90°/s, eased in and out; short steps, walking toward the screen, a finger on the camera and scripted shots leave it alone (`2b1c5ce`).
 - 2026-11-04: one big world: the home in the middle with every world around it, a glowing line between each, walls of light on locked worlds, the dragons-left rows on posts at the lines, and sky, fog and grade blending as he crosses (`407affc`).
 - 2026-11-04: dragons left in each world: a row of dragons in their own colors inside each portal's ring and in the corner, lit for each friend, gold with a star when a world is done (`ae4bc3f`).
 - 2026-11-04: dragon home: friends not following him wait on straw beds in a meadow through a pink portal in the forest, and tapping one there brings it along or sends it back; the choice is saved (`e45c573`).
