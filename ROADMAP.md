@@ -75,19 +75,25 @@ Things to watch:
 
 ## 5. Dragon home
 
-**Status:** ready. Steven asked for it on 2026-11-04 (see Why); the petting and naming are Claude's idea from 2026-11-03, not yet shown to the nephew.
+**Status:** done 2026-11-04 (`e45c573`). The hanging-out part moved to item 6.
 
-**Why:** Steven, 2026-11-04: friends waiting at home "look exactly like ones you can fight", so a full-size friend standing in its area looks like a fight that won't start. The 💛 over a friend's head sits off the top of the screen when he walks up close. He asked to "be able to swap them and/or have them in a home". Also, once he has collected every dragon, there's little to do with them.
+**Why:** Steven, 2026-11-04: friends waiting at home "look exactly like ones you can fight", so a full-size friend standing in its area looked like a fight that won't start. The 💛 over a friend's head sits off the top of the screen when he walks up close. He asked to "be able to swap them and/or have them in a home".
 
-**Build:**
-- **A home:** friends who aren't following him wait there, not out in their areas, so every dragon standing in an area is one he can fight.
-- **Swapping:** at the home he taps a friend to choose who follows him (3 at most, `MAX_FOLLOWERS`), instead of always the 3 most recent. Save the choice.
-- **Hanging out:** a spot where his friends hang out. He taps a friend to pet it (it purrs and hearts float up), feed it, or give it a name he types, which is saved. If item 4 has shipped, the spot goes in the middle world.
+**As built:** the home is its own area, a meadow at golden hour (`home` in `src/areas.ts`), through a pink portal in the forest at [-16, 14], in view from the spawn, that opens at 1 friend. A spot in the forest would have shared the screen with three wild dragons and 150 trees, and couldn't fit nine full-size dragons; its own area makes the rule absolute, since no dragon there is wild and no friend is anywhere else. Every dragon has a straw bed in a ring open toward the portal, the King's at the back (`beds` in `src/main.ts`); empty beds hint at friends still to find. Tapping a friend there (any part of it, heart included) brings it along or sends it back to bed; with 3 following, the oldest pick goes back. A new friend joins him and the oldest pick flies off home. The choice is `following` in `src/save.ts`; an old save starts with its 3 most recent friends. When item 4 ships, the home becomes a region of the big world.
 
-**Done when:** no friend waits out in an area, he can choose his 3 followers at the home and the choice survives a reload, each interaction works on touch, and the names survive a reload.
+## 6. Hanging out with friends
+
+**Status:** not shown to the nephew yet. Claude's idea from 2026-11-03; check he wants it before building.
+
+**Why:** once he has collected every dragon, there's little to do with them.
+
+**Build:** at the home (item 5), tapping a friend already chooses who follows, so these need their own gesture or button: pet it (it purrs and hearts float up), feed it, or give it a name he types, which is saved. If item 4 has shipped, the home is in the big world.
+
+**Done when:** each interaction works on touch, doesn't clash with tapping to choose followers, and the names survive a reload.
 
 ## Done
 
+- 2026-11-04: dragon home: friends not following him wait on straw beds in a meadow through a pink portal in the forest, and tapping one there brings it along or sends it back; the choice is saved (`e45c573`).
 - 2026-11-04: pet-size friends: friends following him shrink to 40% and hover beside his shoulders, full size when ridden and in face-offs (`aa5d443`).
 - 2026-11-04: look pass for the world: film finish (ACES, bloom, MSAA, vignette, grade per area), sky with sun and mountains, painted ground with tufts, layered tinted swaying trees (`a501268`).
 - 2026-11-03: Dragon King finale, friends help in face-offs, staff and name picker, fading trees (`bf2f649`).
