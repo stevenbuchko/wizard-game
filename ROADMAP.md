@@ -56,13 +56,30 @@ The size lives on `d.root.scaling`, which is `1.3 × spec.size` today (`makeDrag
 - Riding, a face-off and the summit battle all show full-size dragons.
 - Tested at 1180×820 in the browser.
 
-## 4. One big world
+## 4. Dragons left in each world
 
-**Status:** waiting on his answer: which world goes in the middle (Steven's task in the vault note)
+**Status:** ready
+
+**Why:** Steven, 2026-11-04: a marker for how many dragons are left at each level. Nothing in the game shows it today, so he can't tell whether a world is finished without walking all of it. A full map was ruled out for now: item 5 replaces the portals with one map, so a map of the portal layout would be thrown away, while these markers carry over.
+
+**Build:** no words, only dragon icons, in the style of the locked-portal signs (`drawSign` in `src/world.ts`: one dragon per friend needed, lit for each friend he has).
+- **Over each portal:** a row with one small dragon per dragon living in that world (`area` in `src/dragons.ts`), lit for each one he has befriended. Open and locked portals both get it; on a locked portal it sits with the existing friends-needed sign without the two being confused (a different color, or the world's dragons tinted in their own colors). Portals back to the forest show the forest's count. The home portal gets none.
+- **Inside a world:** the same row in a screen corner, beside the mute button (`src/ui.ts`), for the world he's in. A dragon lights up with a small pop when he befriends it. Hidden in the home.
+- When every dragon in a world is a friend, the row turns gold or gets a star, so "done" reads at a glance.
+
+Update the rows when a face-off is won and when a save loads.
+
+**Done when:** in the browser at 1180×820, with a seeded save of 2 forest friends and 1 snow friend: the forest shows 2 of 3 lit, the snow portal 1 of 3, the volcano portal 0 of 2, the summit 0 of 1; winning a face-off lights one more without a reload; a finished world shows its done look; nothing on screen uses words.
+
+## 5. One big world
+
+**Status:** ready. Steven answered the middle on 2026-11-04.
 
 **Why:** his words, 2026-11-03: "Where there are all the worlds around it, just one line to separate all the worlds, and then one big world in the middle." Claude's reading (unconfirmed): one continuous map instead of portals, with the worlds side by side, a visible line on the ground between them, and a bigger world in the centre with the others around it.
 
-**Build:** replace the portal areas (`src/areas.ts`, `buildArea` in `src/world.ts`, `enterArea` and `travel` in `src/main.ts`) with one map holding every region. Each region keeps its own ground color, trees, sprinkles and dragons. Locked regions (2, 4 and 8 friends today) need a barrier at their line, showing the friends it needs the way locked portal signs do now. Sky and fog change as he crosses into a region. Collected stars keep their ids, so saved progress survives.
+**The middle:** Steven, 2026-11-04: "where the dragons are kept and/or a mix of all world areas". So the middle region is the dragon home (item 6: the meadow with straw beds, tapping to choose followers), with its edges blending into each neighbouring world's ground and trees. He said "and/or", so either half alone is acceptable if both together don't look right.
+
+**Build:** replace the portal areas (`src/areas.ts`, `buildArea` in `src/world.ts`, `enterArea` and `travel` in `src/main.ts`) with one map holding every region. The dragons-left rows (item 4) move from the portals to each region's line. Each region keeps its own ground color, trees, sprinkles and dragons. Locked regions (2, 4 and 8 friends today) need a barrier at their line, showing the friends it needs the way locked portal signs do now. Sky and fog change as he crosses into a region. Collected stars keep their ids, so saved progress survives.
 
 Things to watch:
 - `PathGrid` covers ±60 today and needs to cover the whole map.
@@ -73,21 +90,21 @@ Things to watch:
 
 **Done when:** he can walk from the middle into every unlocked world without a loading fade, locked lines stop him and say why, the King still needs 8 friends, an old save loads with its friends and stars, and the frame rate holds.
 
-## 5. Dragon home
+## 6. Dragon home
 
-**Status:** done 2026-11-04 (`e45c573`). The hanging-out part moved to item 6.
+**Status:** done 2026-11-04 (`e45c573`). The hanging-out part moved to item 7.
 
 **Why:** Steven, 2026-11-04: friends waiting at home "look exactly like ones you can fight", so a full-size friend standing in its area looked like a fight that won't start. The 💛 over a friend's head sits off the top of the screen when he walks up close. He asked to "be able to swap them and/or have them in a home".
 
-**As built:** the home is its own area, a meadow at golden hour (`home` in `src/areas.ts`), through a pink portal in the forest at [-16, 14], in view from the spawn, that opens at 1 friend. A spot in the forest would have shared the screen with three wild dragons and 150 trees, and couldn't fit nine full-size dragons; its own area makes the rule absolute, since no dragon there is wild and no friend is anywhere else. Every dragon has a straw bed in a ring open toward the portal, the King's at the back (`beds` in `src/main.ts`); empty beds hint at friends still to find. Tapping a friend there (any part of it, heart included) brings it along or sends it back to bed; with 3 following, the oldest pick goes back. A new friend joins him and the oldest pick flies off home. The choice is `following` in `src/save.ts`; an old save starts with its 3 most recent friends. When item 4 ships, the home becomes a region of the big world.
+**As built:** the home is its own area, a meadow at golden hour (`home` in `src/areas.ts`), through a pink portal in the forest at [-16, 14], in view from the spawn, that opens at 1 friend. A spot in the forest would have shared the screen with three wild dragons and 150 trees, and couldn't fit nine full-size dragons; its own area makes the rule absolute, since no dragon there is wild and no friend is anywhere else. Every dragon has a straw bed in a ring open toward the portal, the King's at the back (`beds` in `src/main.ts`); empty beds hint at friends still to find. Tapping a friend there (any part of it, heart included) brings it along or sends it back to bed; with 3 following, the oldest pick goes back. A new friend joins him and the oldest pick flies off home. The choice is `following` in `src/save.ts`; an old save starts with its 3 most recent friends. When item 5 ships, the home becomes the middle of the big world.
 
-## 6. Hanging out with friends
+## 7. Hanging out with friends
 
 **Status:** not shown to the nephew yet. Claude's idea from 2026-11-03; check he wants it before building.
 
 **Why:** once he has collected every dragon, there's little to do with them.
 
-**Build:** at the home (item 5), tapping a friend already chooses who follows, so these need their own gesture or button: pet it (it purrs and hearts float up), feed it, or give it a name he types, which is saved. If item 4 has shipped, the home is in the big world.
+**Build:** at the home (item 6), tapping a friend already chooses who follows, so these need their own gesture or button: pet it (it purrs and hearts float up), feed it, or give it a name he types, which is saved. If item 5 has shipped, the home is the middle of the big world.
 
 **Done when:** each interaction works on touch, doesn't clash with tapping to choose followers, and the names survive a reload.
 
