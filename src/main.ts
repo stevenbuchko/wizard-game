@@ -15,7 +15,7 @@ import { applyLook, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spel
 import { DRAGONS, WEAKNESS, type Element } from "./dragons";
 import { bolt, burst, trail, type Sparkle } from "./effects";
 import { PathGrid } from "./path";
-import { buildArea, setupLights, WORLD_RADIUS, type Area, type Star } from "./world";
+import { buildArea, setupFilm, setupLights, WORLD_RADIUS, type Area, type Star } from "./world";
 import { setBattleMusic, setMuted, sfx, startMusic, unlockAudio } from "./audio";
 import { load, save } from "./save";
 import { ui } from "./ui";
@@ -42,7 +42,13 @@ const engine = new Engine(canvas, true, { stencil: true });
 engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, 1.5));
 const scene = new Scene(engine);
 const shadows = setupLights(scene);
-new GlowLayer("glow", scene).intensity = 0.6;
+const glow = new GlowLayer("glow", scene);
+glow.intensity = 0.6;
+// A portal or tree fading out of his way fades its glow too, or the bloom would hide him in light.
+glow.customEmissiveColorSelector = (mesh, _subMesh, material, color) => {
+  const e = (material as StandardMaterial).emissiveColor ?? Color3.Black();
+  color.set(e.r * mesh.visibility, e.g * mesh.visibility, e.b * mesh.visibility, material.alpha);
+};
 
 const wizard = makeWizard(scene);
 applyLook(wizard, data.look);
@@ -64,6 +70,7 @@ camera.upperBetaLimit = 1.4;
 camera.panningSensibility = 0;
 camera.angularSensibilityX = 600;
 camera.angularSensibilityY = 600;
+const grade = setupFilm(scene, camera);
 
 function glowMaterial(color: Color3, alpha = 1): StandardMaterial {
   const m = new StandardMaterial("glow", scene);
@@ -230,6 +237,7 @@ function enterArea(id: AreaId, from?: AreaId) {
   const spec = AREAS[id];
   const homes = DRAGONS.filter((d) => d.area === id).map((d) => new Vector3(d.home[0], 0, d.home[1]));
   area = buildArea(scene, spec, shadows, homes, data.stars);
+  grade(spec.grade);
   grid = new PathGrid(area.obstacles, WIZARD_RADIUS + 0.1);
 
   const arrival = from ? area.portals.find((p) => p.to === from) : undefined;

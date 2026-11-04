@@ -7,13 +7,13 @@ An iPad game for a 7-year-old. Touch the ground to walk; the wizard finds his wa
 - **His wizard**: the 🧙 button on the title screen picks the robe, crystal, staff, hood or hat, and his name, which titles the start screen.
 - **Saved progress**: friends, stars, his wizard's look and name, and the sound setting stay on the iPad between visits.
 
-What's next is in `ROADMAP.md`. Babylon.js, TypeScript and Vite. The characters are placeholder primitives until the rigged 3D models are bought. Everything imports Babylon through `src/babylon.ts`, which keeps the download to about 1.4 MB.
+What's next is in `ROADMAP.md`. Babylon.js, TypeScript and Vite. The characters are placeholder primitives until the rigged 3D models are bought. Everything imports Babylon through `src/babylon.ts`, which keeps the download to about 1.5 MB.
 
 ## Adding a dragon from his description
 
 He describes a dragon: its colors, what it breathes, what beats it, where it lives. Add one entry to `DRAGONS` in `src/dragons.ts`; the comment there explains each field. Give it a home spot at least 10 away from the others in its area and from the portals in `src/areas.ts`. If a new dragon pushes the total past what a portal asks for, nothing else changes; if it's a new area, add it to `src/areas.ts` with a portal to it.
 
-Effects are in `src/effects.ts`, sounds and music in `src/audio.ts` (all synthesized), and the screen overlay in `src/ui.ts` and `index.html`.
+Each area's look (sky, mountains, ground, tufts, trees and the film grade) is data in `src/areas.ts`, which `src/world.ts` paints when he arrives. Effects are in `src/effects.ts`, sounds and music in `src/audio.ts` (all synthesized), and the screen overlay in `src/ui.ts` and `index.html`.
 
 ## Run
 
