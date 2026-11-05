@@ -213,7 +213,7 @@ If the frame rate still falls short, add a quality level chosen at startup from 
 
 ## 10. Endless dragons, or start again
 
-**Status:** ready. Steven picked both, and agreed the build below, 2026-11-04.
+**Status:** done 2026-11-04 (`649a9a7`).
 
 **Why:** Steven, 2026-11-04: "somehow have unlimited dragons and/or ability to restart the game." Once every dragon is a friend there is nothing left to befriend.
 
@@ -274,6 +274,7 @@ If the frame rate still falls short, add a quality level chosen at startup from 
 
 ## Done
 
+- 2026-11-04: endless dragons and start again: after the King a baby always waits in the forest, snow and volcano, the newest 12 sleep on an outer ring of beds, and a 3-second hold on the title screen's 🔄 starts again, keeping his wizard (`649a9a7`).
 - 2026-11-04: the Quaternius forest: the kit's trees, rocks, grass and plants in every world, packed small without a glTF loader; download 2.6 MB (`7302e75`).
 - 2026-11-04: follow camera: the view eases round behind him while he walks or flies, at up to 90°/s, eased in and out; short steps, walking toward the screen, a finger on the camera and scripted shots leave it alone (`2b1c5ce`).
 - 2026-11-04: one big world: the home in the middle with every world around it, a glowing line between each, walls of light on locked worlds, the dragons-left rows on posts at the lines, and sky, fog and grade blending as he crosses (`407affc`).
