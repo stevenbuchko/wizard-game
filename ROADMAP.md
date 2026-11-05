@@ -20,19 +20,78 @@ Keep the fade in `fader` (`src/world.ts`) working with any new tree meshes.
 
 **Done when:** every area has been seen in the browser at 1180×820, before-and-after screenshots are in the wrap-up, the frame rate holds, and the download stays under about 2 MB.
 
-## 2. Look pass: the dragons and the wizard
+## 2. Swap in the bought dragon and wizard
 
-**Status:** waiting on the models decision. Steven is choosing models with him from a shortlist (2026-11-04). If a model is picked, this item becomes "swap in the models", and the work below is skipped, since a model replaces the primitive characters entirely.
+**Status:** waiting on Steven. Picked 2026-11-04. Before this is ready he:
+1. asks each seller, through their Unity Asset Store page, whether a free web game may ship the model packed, with the file kept out of the public repo;
+2. buys both;
+3. puts the two `.unitypackage` downloads somewhere outside this repo and tells the session where.
 
-**Why:** the characters are what he looks at most, and they're still primitives.
+Agree the hosting plan below with him before writing code.
 
-**Build:** in `src/characters.ts`, without bought models:
-- **Dragons:** smooth tapered neck and tail (tubes along a curve) instead of chains of spheres, a jaw with teeth, eyes with pupils that blink, wings with bones and a curved membrane, claws, a scale texture, and legs that step when walking.
-- **Wizard:** a flowing robe, arms that raise the staff to cast, and a beard or hair.
+**Why:** the characters are what he looks at most, and they're still primitives. The shortlist he picked from, with prices, licenses and the other options: https://claude.ai/artifact/RPZvxT7K3jKgoBq2NiGwga. These models replace the primitive characters entirely, so the earlier plan to sculpt better primitives is dropped.
 
-Keep every handle `src/main.ts` uses (`root`, `head`, `wings`, `skin`, `heart`, `crystal`), since the game logic drives them.
+**The models:**
+- **Dragon: Toon Dragons by SPiN AG**, $7.99 (https://assetstore.unity.com/packages/3d/characters/creatures/toon-dragons-189520). One four-legged, bat-winged dragon:
+  - About 30k triangles; texture size not listed.
+  - Hand-painted red, blue and green skins.
+  - 10 clips: Idle, Walk_WingsDown, Walk_WingsUp, WingsFlap, Attack, Bow, Fallback, Fly, HeadTurn_Left, HeadTurn_Right. No fire breath or roar.
+  - One model becomes all nine dragons.
+- **Wizard: Hand Painted Wizard by Artcitizen**, $10 (https://assetstore.unity.com/packages/3d/characters/humanoids/fantasy/hand-painted-wizard-94781):
+  - Blue robe, pointed hat, beard, staff.
+  - 3,664 triangles, one 2048 diffuse texture.
+  - 7 clips: idle1, idle2, walk, run, attack, cast, die.
+- Bone names for either weren't listed before purchase.
 
-**Done when:** every dragon and the wizard look right from the play camera, the face-off camera and the wardrobe close-up, and the frame rate holds.
+**Hosting (license):** both are under the Unity Asset Store EULA. It allows any engine but not shipping a model "in a way that allows others to extract them". The source files must never be committed to this public repo, and the site must not serve a plain `.glb` or `.fbx`.
+
+One way that keeps the push-to-deploy flow:
+- The source models live in a separate private repo on Steven's personal account.
+- `pages.yml` checks it out with a read-only deploy key, which Steven adds as a secret in the GitHub web UI, since `gh` is off limits here.
+- A build step converts the models and packs them into a scrambled binary that the game unpacks in memory.
+
+Packing doesn't make extraction impossible, so the sellers' replies decide whether this is enough.
+
+**Build:**
+- **Convert:**
+  - A `.unitypackage` is a gzipped tar: each asset sits in a GUID folder holding `asset` and `pathname`.
+  - Pull out the FBX files and textures, then export GLB with headless Blender (`blender -b --python`).
+  - Bring textures down to 1K–2K, and trim the dragon toward 15k triangles. The game is already slow on the iPad (item 8), and up to nine dragons can be on screen.
+- **Load:**
+  - Add the glTF loader through `src/babylon.ts`, never `@babylonjs/core` directly. Check its cost to the download.
+  - Use `instantiateModelsToScene` so each dragon gets its own skeleton and animation groups.
+- **Keep the handles** `src/main.ts` drives (`root`, `head`, `wings`, `skin`, `heart`, `crystal`):
+  - `head` and `wings` become the head and wing bones' transform nodes.
+  - Code that turns them must blend with the clips, not fight them.
+  - Pet scaling, the saddle maths in `toggleRide`/`dismount`, and `fader` (copies, since instances share visibility) all need re-checking.
+- **Moves:**
+
+  | Need | Clip |
+  |---|---|
+  | idle | Idle |
+  | walk | Walk_WingsDown |
+  | fly | Fly / WingsFlap |
+  | fire breath | Attack plus the game's particle breath from the head bone |
+  | hurt | Fallback |
+  | roar | WingsFlap with the head raised in code |
+  | befriended or greeting | Bow |
+- **Nine colors** from `src/dragons.ts`:
+  - Start from the red skin for red-bronze and deep red, the blue for ice, and the green for green.
+  - Tint or hue-shift for the rest; if grey, white and gold come out muddy, paint one body/belly/wing mask.
+  - The black dragon's lava belly is an emissive map, and the King's crown is a mesh on the head bone.
+- **Wizard:**
+  - The robe and crystal picker needs the robe masked once on the diffuse.
+  - The staff hangs on the hand bone with the crystal at its tip.
+  - The hat options either replace the model's hat or ride on the head bone.
+  - Hurt and a cheer can come from Mixamo, which needs Steven's Adobe login.
+
+**Done when:**
+- In the browser at 1180×820, every dragon in all nine colors and the wizard look right from the play camera, the face-off camera and the wardrobe close-up.
+- Every move above plays.
+- Riding, pets, the dragon home and the King's battle work.
+- The frame rate meets item 8's target.
+- Neither the repo nor the deployed site holds a plain model file.
+- The download size is agreed with Steven, since it will pass the old 2 MB budget.
 
 ## 3. Pet-size friends
 
@@ -174,6 +233,27 @@ If the frame rate still falls short, add a quality level chosen at startup from 
 
 **Done when:** each interaction works on touch, doesn't clash with tapping to choose followers, and the names survive a reload.
 
+## 13. The Quaternius forest
+
+**Status:** ready, after item 8. Picked by Steven 2026-11-04, with the models in item 2.
+
+**Why:** the picked dragon and wizard are hand-painted, and the procedural trees and ground from item 1 won't match them. Steven picked the look of the Quaternius Stylized Nature MegaKit: soft, chunky, bright trees, ferns, rocks and mushrooms. Its picture is on the shortlist page in item 2. It goes after item 8 because it adds to the frame cost. It doesn't need item 2, so it can be built first.
+
+**Build:**
+- **Download:** the Stylized Nature MegaKit is free, 116 models in glTF and FBX (https://quaternius.com/packs/stylizednaturemegakit.html). Keep the license file from the zip.
+  - Quaternius allows use in a game with no credit, but not offering the files as a download of their own. The models can sit in the repo and be served by the game.
+  - If the download needs an account, ask Steven.
+- **Forest:** swap the procedural trees, rocks and sprinkles (`src/world.ts`) for a chosen subset of the kit.
+- **Other worlds:** retint leaves and rocks per region (snow, volcano, summit), or keep their own pieces where a tint looks wrong.
+- **Keep working:**
+  - instancing, and `fader` with copies
+  - the shadow casters' limit
+  - the null LOD past the haze
+  - the tree positions that `PathGrid` walks around
+- **Light pass:** the film finish from item 1 stays, maybe with a lighter grade.
+
+**Done when:** every region has been seen in the browser at 1180×820 with before-and-after screenshots, the forest reads like the kit's picture, the frame rate meets item 8's target, and the download growth is agreed with Steven.
+
 ## Done
 
 - 2026-11-04: follow camera: the view eases round behind him while he walks or flies, at up to 90°/s, eased in and out; short steps, walking toward the screen, a finger on the camera and scripted shots leave it alone (`2b1c5ce`).
@@ -187,4 +267,4 @@ If the frame rate still falls short, add a quality level chosen at startup from 
 
 ## On hold
 
-- **Real models:** rigged dragon and wizard models to replace the primitives. On hold by Steven, 2026-11-03; on 2026-11-04 he asked for a shortlist to pick from with the nephew, which decides item 2. Match the dragon he picked: Figma concepts file https://www.figma.com/design/bQZMzFrAXm36eTH8pu1wml, node 4:3.
+- Nothing on hold. The real models were picked 2026-11-04 and are item 2. The dragon design he picked is node 4:3 in the Figma concepts file (https://www.figma.com/design/bQZMzFrAXm36eTH8pu1wml).
