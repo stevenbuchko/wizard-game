@@ -2,8 +2,9 @@ import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial, Tra
 import { type DragonBody, makeDragonBody, recolorOf } from "./dragon-model";
 import type { DragonSpec, Element } from "./dragons";
 import type { Look } from "./save";
+import { makeWizardBody, type WizardBody } from "./wizard-model";
 
-// The wizard is still built from primitives; the dragons are the Toon Dragons model (src/dragon-model.ts).
+// The wizard is Hand Painted Wizard (src/wizard-model.ts); the dragons are the Toon Dragons model (src/dragon-model.ts).
 
 export type Spell = Element | "shield";
 
@@ -32,69 +33,46 @@ function part(mesh: Mesh, parent: TransformNode, mat: StandardMaterial, pos: Vec
 
 export interface Wizard {
   root: TransformNode;
-  body: TransformNode;
+  body: TransformNode; // wobbles when he's hit, on top of the clips
+  model: WizardBody;
   crystal: TransformNode; // the staff's tip, where spells start
   meshes: Mesh[];
-  robe: StandardMaterial;
-  trim: StandardMaterial;
   glow: StandardMaterial;
-  wood: StandardMaterial;
-  hat: Mesh[];
-  hood: Mesh[];
   tips: Record<Look["staff"], Mesh>;
 }
 
-const STAFF_COLORS: Record<Look["staff"], Color3> = {
-  wood: new Color3(0.45, 0.28, 0.12),
-  gold: new Color3(0.85, 0.65, 0.2),
-  shard: new Color3(0.88, 0.86, 0.94),
+// The staff's paint mapped onto shadow, color and highlight. The painted wood is dark under the game's light, so even
+// wood is repainted, a shade lighter.
+const STAFF_COLORS: Record<Look["staff"], [Color3, Color3, Color3]> = {
+  wood: [new Color3(0.22, 0.11, 0.04), new Color3(0.62, 0.38, 0.18), new Color3(0.9, 0.68, 0.42)],
+  gold: [new Color3(0.35, 0.2, 0.04), new Color3(0.85, 0.62, 0.18), new Color3(1, 0.92, 0.55)],
+  shard: [new Color3(0.42, 0.4, 0.55), new Color3(0.82, 0.8, 0.92), new Color3(1, 1, 1)],
 };
 
 export function makeWizard(scene: Scene): Wizard {
   const root = new TransformNode("wizard", scene);
   const body = new TransformNode("wizardBody", scene);
   body.parent = root;
-  const robe = material(scene, new Color3(0.16, 0.27, 0.62));
-  const trim = material(scene, new Color3(0.1, 0.16, 0.4));
-  const skin = material(scene, new Color3(0.96, 0.78, 0.66));
-  const wood = material(scene, new Color3(0.45, 0.28, 0.12));
-  const eye = material(scene, new Color3(0.1, 0.08, 0.15));
+  const model = makeWizardBody(scene, body);
   const glow = material(scene, new Color3(0.4, 0.9, 1), new Color3(0.3, 0.8, 1));
-
-  const meshes = [
-    part(MeshBuilder.CreateCylinder("robe", { height: 1.4, diameterTop: 0.45, diameterBottom: 1.0, tessellation: 20 }, scene), body, robe, new Vector3(0, 0.7, 0)),
-    part(MeshBuilder.CreateSphere("head", { diameter: 0.6 }, scene), body, skin, new Vector3(0, 1.65, 0)),
-    part(MeshBuilder.CreateSphere("eyeL", { diameter: 0.09 }, scene), body, eye, new Vector3(-0.11, 1.7, 0.27)),
-    part(MeshBuilder.CreateSphere("eyeR", { diameter: 0.09 }, scene), body, eye, new Vector3(0.11, 1.7, 0.27)),
-    part(MeshBuilder.CreateCylinder("staff", { height: 2.0, diameter: 0.08 }, scene), body, wood, new Vector3(0.6, 1.0, 0.15)),
-  ];
-  const hood = [part(MeshBuilder.CreateCylinder("hood", { height: 1.0, diameterTop: 0, diameterBottom: 0.75, tessellation: 20 }, scene), body, trim, new Vector3(0, 2.25, -0.05))];
-  const cone = part(MeshBuilder.CreateCylinder("hat", { height: 1.3, diameterTop: 0, diameterBottom: 0.62, tessellation: 20 }, scene), body, trim, new Vector3(0, 2.5, -0.05));
-  cone.rotation.x = -0.15;
-  const hat = [cone, part(MeshBuilder.CreateCylinder("brim", { height: 0.05, diameter: 1.1, tessellation: 24 }, scene), body, trim, new Vector3(0, 1.88, 0))];
-  const crystal = new TransformNode("tip", scene);
-  crystal.parent = body;
-  crystal.position = new Vector3(0.6, 2.05, 0.15);
+  const crystal = model.crystal;
   const tips = {
     wood: part(MeshBuilder.CreateSphere("orb", { diameter: 0.26 }, scene), crystal, glow, Vector3.Zero()),
     gold: part(MeshBuilder.CreatePolyhedron("star", { type: 1, size: 0.2 }, scene), crystal, glow, new Vector3(0, 0.05, 0)),
     shard: part(MeshBuilder.CreatePolyhedron("shard", { type: 1, sizeX: 0.12, sizeY: 0.34, sizeZ: 0.12 }, scene), crystal, glow, new Vector3(0, 0.15, 0)),
   };
-  meshes.push(...Object.values(tips), ...hood, ...hat);
-  return { root, body, crystal, meshes, robe, trim, glow, wood, hat, hood, tips };
+  return { root, body, model, crystal, meshes: [model.mesh, ...Object.values(tips)], glow, tips };
 }
 
 export function applyLook(w: Wizard, look: Look) {
   const robe = Color3.FromHexString(look.robe);
-  w.robe.diffuseColor = robe;
-  w.trim.diffuseColor = robe.scale(0.6);
+  [w.model.robe.dark, w.model.robe.mid, w.model.robe.light] = [robe.scale(0.35), robe, Color3.Lerp(robe, Color3.White(), 0.45)];
   const crystal = Color3.FromHexString(look.crystal);
   w.glow.diffuseColor = crystal;
   w.glow.emissiveColor = crystal.scale(0.8);
-  w.hat.forEach((m) => (m.isVisible = look.hat === "hat"));
-  w.hood.forEach((m) => (m.isVisible = look.hat === "hood"));
-  w.wood.diffuseColor = STAFF_COLORS[look.staff];
+  [w.model.staff.dark, w.model.staff.mid, w.model.staff.light] = STAFF_COLORS[look.staff];
   for (const [kind, tip] of Object.entries(w.tips)) tip.isVisible = kind === look.staff;
+  w.model.brim(look.hat === "hat");
 }
 
 export interface Dragon {

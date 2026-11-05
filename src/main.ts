@@ -15,6 +15,7 @@ import {
 import { AREAS, type AreaId } from "./areas";
 import { applyLook, disposeDragon, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spell } from "./characters";
 import { loadDragonModel } from "./dragon-model";
+import { loadWizardModel } from "./wizard-model";
 import { DRAGONS, WEAKNESS, type DragonSpec, type Element } from "./dragons";
 import { bolt, burst, trail, type Sparkle } from "./effects";
 import { BABY_BEDS, babyOf, HATCH_DELAY, hatching, isBaby, NESTS, nextBaby } from "./hatch";
@@ -55,6 +56,7 @@ const glow = new GlowLayer("glow", scene, { mainTextureRatio: 0.25 });
 glow.intensity = 0.6;
 glow.blurKernelSize = 16;
 
+await Promise.all([loadDragonModel(scene), loadWizardModel(scene)]);
 const wizard = makeWizard(scene);
 applyLook(wizard, data.look);
 wizard.meshes.forEach((m) => shadows.addShadowCaster(m));
@@ -86,7 +88,6 @@ function removeDragon(d: Dragon) {
 }
 
 const nature = loadNature();
-await loadDragonModel(scene);
 DRAGONS.forEach(addDragon);
 
 // Each friend's bed at home: a ring round the middle of the map, each bed between two ways out so none is in his path,
@@ -169,7 +170,6 @@ let look: Weights = new Map();
 let currentArea: AreaId = "forest";
 let walkTarget: Vector3 | null = null;
 let walkPath: Vector3[] = []; // waypoints on foot; walkTarget is the final tap
-let walkPhase = 0;
 let stuckFor = 0;
 let wobble = 0;
 let shake = 0;
@@ -563,6 +563,7 @@ function cast(spell: Spell) {
   cooldownUntil = now + SPELL_COOLDOWN;
   ui.cooldown(SPELL_COOLDOWN);
   sfx[spell]();
+  wizard.model.play(spell === "shield" ? "shield" : "cast");
   if (spell === "shield") {
     shieldUntil = now + SHIELD_TIME;
     burst(scene, wizardChest(), "shield", 30);
@@ -624,6 +625,7 @@ function befriend(d: Dragon) {
   const before = followers();
   makeFriend(d);
   d.body.play("bow");
+  wizard.model.play("cheer");
   helpAt.clear();
   data.friends.push(d.spec.id);
   // A new friend walks with him, and the oldest choice flies home to make room.
@@ -686,6 +688,7 @@ function dragonPuff(d: Dragon) {
 function nap(d: Dragon) {
   endBattle();
   mode = "nap";
+  wizard.model.play("nap");
   ui.banner("💤", 2);
   setTimeout(() => {
     const { at, yaw } = spawnOf(currentArea);
@@ -770,7 +773,7 @@ function updateWizard(dt: number) {
   if (riding) {
     // The dragon grows under him, so his size follows its scale to stay the same in the world.
     wizard.root.scaling.setAll(1 / riding.root.scaling.x);
-    wizard.body.position.y = Math.sin(now * 3) * 0.05;
+    wizard.model.play("idle");
     return;
   }
 
@@ -808,8 +811,7 @@ function updateWizard(dt: number) {
     }
   }
   if (foe) turnToward(wizard.root, foe.root.position, dt, 6);
-  walkPhase += walking ? dt * 12 : 0;
-  wizard.body.position.y = walking ? Math.abs(Math.sin(walkPhase)) * 0.12 : 0;
+  if (mode !== "nap") wizard.model.play(walking ? "walk" : "idle");
 
   if (mode !== "explore") return;
   const pets = followers();
