@@ -22,12 +22,13 @@ Keep the fade in `fader` (`src/world.ts`) working with any new tree meshes.
 
 ## 2. Swap in the bought dragon and wizard
 
-**Status:** waiting on Steven, who is buying both now (2026-11-04). Before this is ready he:
-1. asks each seller, through their Unity Asset Store page, whether a free web game may ship the model packed, with the file kept out of the public repo. Not asked (Steven, 2026-11-04), so the license question is open;
-2. buys both;
-3. puts the two `.unitypackage` downloads somewhere outside this repo and tells the session where.
+**Status:** the dragon is done 2026-11-05 (`e284272`, then `499126d` so the rider moves with the back and dragons flap out of step). The wizard is next, waiting on Steven to download Hand Painted Wizard and put the `.unitypackage` in `~/wizard-game-models/downloads`. The sellers weren't asked (Steven, 2026-11-04), so the license question is open.
 
-Agree the hosting plan below with him before writing code.
+What the dragon taught, for the wizard:
+- Blender can't import these C4D-rigged FBX files. `tools/pack-dragon.mjs` reads them with three's `FBXLoader` in Node instead, and the same route should work for the wizard; some of its tracks come out malformed and need skipping.
+- No glTF loader: the pack is quantized arrays the game reads straight into a `Mesh` and `Skeleton` (`src/dragon-model.ts`), which kept the code growth to about 63 KB.
+- Colors come from a material plugin that gradient-maps the painted texture, not a mask; the robe can likely do the same.
+- Download went from about 2.7 MB to 3.5 MB, agreed with Steven 2026-11-05. The frame time on the Mac went from 0.9 to 1.2–1.6 ms; the iPad wasn't measured.
 
 **Why:** the characters are what he looks at most, and they're still primitives. The shortlist he picked from, with prices, licenses and the other options: https://claude.ai/artifact/RPZvxT7K3jKgoBq2NiGwga. These models replace the primitive characters entirely, so the earlier plan to sculpt better primitives is dropped.
 
