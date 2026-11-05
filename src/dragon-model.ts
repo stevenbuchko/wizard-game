@@ -252,7 +252,7 @@ export interface DragonBody {
   materials: StandardMaterial[];
   headTop: number; // the top of the head at rest, in the dragon's own units
   headZ: number;
-  saddle: Vector3;
+  saddle: TransformNode; // where a rider sits, rising and falling with the back but never tipping
   mount(at: Vector3): TransformNode; // a node that sits at this rest-pose spot and moves with the head
   play(move: Move): void;
   look(pitch: number): void; // tips the head up (negative) or down, on top of whatever clip is playing
@@ -321,7 +321,10 @@ export function makeDragonBody(scene: Scene, id: string, parent: TransformNode, 
   const restOf = (name: string) => boneNamed(name).getAbsoluteMatrix().getTranslation();
   const headTop = restOf(SKULL).y + 0.55;
   const headZ = restOf(SKULL).z;
-  const saddle = restOf(SADDLE_BONE).add(new Vector3(0, 0.75, -0.1));
+  const back = boneNamed(SADDLE_BONE);
+  const saddle = new TransformNode(`${id}Saddle`, scene);
+  saddle.parent = parent;
+  saddle.position.copyFrom(restOf(SADDLE_BONE)).addInPlace(new Vector3(0, 0.75, -0.1));
 
   const mounted: TransformNode[] = [];
   const mount = (at: Vector3) => {
@@ -344,6 +347,7 @@ export function makeDragonBody(scene: Scene, id: string, parent: TransformNode, 
     group.blendingSpeed = 0.12;
     groups.set(c.name, group);
   }
+  const pace = 0.88 + Math.random() * 0.24;
   let loop: Move = "idle";
   let playing: Move | undefined;
   let stopping = false;
@@ -357,7 +361,9 @@ export function makeDragonBody(scene: Scene, id: string, parent: TransformNode, 
     playing = move;
     const { clip, loop: repeat, speed } = MOVES[move];
     const group = groups.get(clip)!;
-    group.start(repeat, speed, 0, group.to);
+    // Each dragon keeps its own beat, so a flock doesn't flap as one.
+    group.start(repeat, repeat ? speed * pace : speed, 0, group.to);
+    if (repeat) group.goToFrame(Math.random() * group.to);
     if (!awake) group.pause();
   };
   for (const group of groups.values()) {
@@ -379,10 +385,15 @@ export function makeDragonBody(scene: Scene, id: string, parent: TransformNode, 
 
   let pitch = 0;
   const tip = new Quaternion();
+  const at = new Vector3();
   const pose = scene.onAfterAnimationsObservable.add(() => {
     // The skull bone's x axis points to the dragon's left, so up is a negative turn for the game and a positive one here.
     Quaternion.RotationAxisToRef(Vector3.Right(), -pitch, tip);
     skull.setRotationQuaternion(skullRest.multiply(tip));
+    if (!saddle.getChildren().length) return;
+    skeleton.computeAbsoluteMatrices(true);
+    back.getAbsoluteMatrix().getTranslationToRef(at);
+    saddle.position.set(at.x, at.y + 0.75, at.z - 0.1);
   });
 
   // Blinks now and then, as the asset's own script does.
@@ -421,6 +432,7 @@ export function makeDragonBody(scene: Scene, id: string, parent: TransformNode, 
       scene.onBeforeRenderObservable.remove(blink);
       for (const group of groups.values()) group.dispose();
       head.dispose();
+      saddle.dispose(true);
       for (const m of mounted) m.dispose();
       mesh.dispose();
       multi.dispose();

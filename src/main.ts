@@ -725,8 +725,8 @@ function toggleRide() {
   landing = false;
   walkTarget = null;
   marker.isVisible = false;
-  wizard.root.parent = d.root;
-  wizard.root.position.copyFrom(d.body.saddle);
+  wizard.root.parent = d.body.saddle;
+  wizard.root.position.setAll(0);
   wizard.root.rotation.y = 0;
   wizard.root.scaling.setAll(1 / d.root.scaling.x);
   burst(scene, wizardChest(), "gold", 40);
