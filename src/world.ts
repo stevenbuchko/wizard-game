@@ -25,6 +25,7 @@ import {
 } from "./babylon";
 import { AREAS, type AreaId, type AreaSpec, type Grade } from "./areas";
 import { EDGE, gateOf, HOME_RADIUS, MAP_RADIUS, ownerAt, sliceOf, spawnOf, spokes, toMap, WORLDS } from "./map";
+import { model, sourceMeshes, type ModelName } from "./nature";
 import { drawTally } from "./tally";
 
 export interface Obstacle {
@@ -429,31 +430,40 @@ function paintPatches(scene: Scene, rand: () => number): DynamicTexture {
   return t;
 }
 
-// Grass tufts, frosted grass, charred stalks or crystal shards: one mesh drawn many times in a single call.
+// Grass tufts from the kit, or frosted grass, charred stalks or crystal shards: one mesh drawn many times in a single call.
 function scatterTufts(scene: Scene, spec: AreaSpec, root: TransformNode, rand: () => number, spot: () => [number, number] | null) {
-  const parts: Mesh[] = [];
-  const pivots: TransformNode[] = [];
-  const blades = { grass: 7, snow: 5, ash: 3, crystal: 3 }[spec.floor];
-  for (let i = 0; i < blades; i++) {
-    const crystal = spec.floor === "crystal";
-    const height = crystal ? 0.35 + rand() * 0.45 : 0.3 + rand() * 0.35;
-    const pivot = new TransformNode("pivot", scene);
-    pivot.rotation.set((rand() - 0.5) * (crystal ? 1 : 0.9), rand() * Math.PI * 2, (rand() - 0.5) * 0.9);
-    const blade = MeshBuilder.CreateCylinder("blade", { height, diameterTop: 0, diameterBottom: crystal ? 0.16 : 0.07, tessellation: crystal ? 6 : 3 }, scene);
-    blade.parent = pivot;
-    blade.position.set((rand() - 0.5) * 0.2, height / 2, (rand() - 0.5) * 0.2);
-    pivots.push(pivot);
-    parts.push(blade);
+  const grass = spec.floor === "grass";
+  let tuft: Mesh;
+  if (grass) {
+    tuft = sourceMeshes(scene, "Grass_Common_Short", { bark: hex(spec.tuft) })[0];
+    (tuft.material as StandardMaterial).backFaceCulling = false;
+    // The kit's grass stands knee-high on him; tufts stay at his ankles.
+    tuft.bakeTransformIntoVertices(Matrix.Scaling(0.4, 0.35, 0.4));
+  } else {
+    const parts: Mesh[] = [];
+    const pivots: TransformNode[] = [];
+    const blades = { grass: 7, snow: 5, ash: 3, crystal: 3 }[spec.floor];
+    for (let i = 0; i < blades; i++) {
+      const crystal = spec.floor === "crystal";
+      const height = crystal ? 0.35 + rand() * 0.45 : 0.3 + rand() * 0.35;
+      const pivot = new TransformNode("pivot", scene);
+      pivot.rotation.set((rand() - 0.5) * (crystal ? 1 : 0.9), rand() * Math.PI * 2, (rand() - 0.5) * 0.9);
+      const blade = MeshBuilder.CreateCylinder("blade", { height, diameterTop: 0, diameterBottom: crystal ? 0.16 : 0.07, tessellation: crystal ? 6 : 3 }, scene);
+      blade.parent = pivot;
+      blade.position.set((rand() - 0.5) * 0.2, height / 2, (rand() - 0.5) * 0.2);
+      pivots.push(pivot);
+      parts.push(blade);
+    }
+    tuft = Mesh.MergeMeshes(parts, true)!;
+    pivots.forEach((p) => p.dispose());
+    tuft.material = material(scene, hex(spec.tuft), spec.floor === "crystal");
+    if (spec.floor === "crystal") (tuft.material as StandardMaterial).emissiveColor = hex(spec.tuft).scale(0.12);
   }
-  const tuft = Mesh.MergeMeshes(parts, true)!;
-  pivots.forEach((p) => p.dispose());
   tuft.parent = root;
   tuft.isPickable = false;
   tuft.receiveShadows = true;
-  tuft.material = material(scene, hex(spec.tuft), spec.floor === "crystal");
-  if (spec.floor === "crystal") (tuft.material as StandardMaterial).emissiveColor = hex(spec.tuft).scale(0.12);
 
-  const count = spec.id === "home" ? 400 : spec.floor === "grass" ? 900 : spec.floor === "snow" ? 300 : 500;
+  const count = spec.id === "home" ? 250 : grass ? 500 : spec.floor === "snow" ? 300 : 500;
   const matrices = new Float32Array(count * 16);
   const colors = new Float32Array(count * 4);
   const matrix = new Matrix();
@@ -524,7 +534,9 @@ function fader(meshes: AbstractMesh[]): (alpha: number) => void {
       }
       m.isVisible = solid;
       ghosts![i].isVisible = !solid;
-      ghosts![i].visibility = alpha;
+      // A crown is many leaf cards one behind another, so each fades much further for the crown as a whole to clear.
+      const leaves = ghosts![i].material instanceof StandardMaterial && (ghosts![i].material as StandardMaterial).diffuseTexture?.hasAlpha;
+      ghosts![i].visibility = leaves ? alpha * alpha * 0.5 : alpha;
     });
   };
 }
@@ -671,26 +683,18 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
     if (floor.glow) glowing(g);
   }
 
-  // Every tree is an instance, with the source meshes hidden, so each one can be hidden on its own.
-  const trunk = own(MeshBuilder.CreateCylinder("trunk", { height: 2.4, diameterTop: 0.35, diameterBottom: 0.55, tessellation: 8 }, scene));
-  trunk.material = material(scene, hex(spec.trunk));
-  // One cone, stretched into each tier of a pine or each spike of a dead tree, and tinted per tree.
-  const coneShape = { height: 1, diameterTop: 0, diameterBottom: 1, tessellation: spec.dead ? 6 : 10 };
-  const crown = own(MeshBuilder.CreateCylinder("crown", coneShape, scene));
-  crown.material = material(scene, hex(spec.crown));
-  if (spec.crownGlows) (crown.material as StandardMaterial).emissiveColor = hex(spec.crown).scale(0.12);
-  const cap = spec.cap ? own(MeshBuilder.CreateCylinder("cap", coneShape, scene)) : null;
-  if (cap) cap.material = material(scene, hex(spec.cap!));
-  for (const m of [trunk, crown]) {
-    m.registerInstancedBuffer("color", 4);
-    m.instancedBuffers.color = new Color4(1, 1, 1, 1);
-  }
-  for (const m of [trunk, crown, cap]) if (m) m.isVisible = false;
-  const tiers = [
-    [2, 2.4, 3.4], // bottom, height and width, in tree units
-    [3.3, 2.2, 2.6],
-    [4.5, 2.1, 1.8],
-  ];
+  // Every tree is an instance of one of the kit's trees, with the sources hidden, so each one can be hidden on its own.
+  // The kit's dead bark is dark; on the summit it glows like the crystal around it.
+  const glow = spec.crownGlows ? hex(spec.crown).scale(0.3) : undefined;
+  const kinds = spec.kinds.map((name) => {
+    const meshes = sourceMeshes(scene, name, { bark: hex(spec.trunk), leaves: hex(spec.crown), glow }).map(own);
+    for (const m of meshes) {
+      m.registerInstancedBuffer("color", 4);
+      m.instancedBuffers.color = new Color4(1, 1, 1, 1);
+      m.isVisible = false;
+    }
+    return { meshes, model: model(name) };
+  });
 
   let placed = 0;
   for (let tries = 0; placed < spec.trees && tries < spec.trees * 100; tries++) {
@@ -698,77 +702,73 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
     if (!at) continue;
     const [x, z] = at;
     if (!clear(x, z, home ? 7 : 10)) continue;
-    const s = 0.8 + rand() * 0.8;
-    const meshes: AbstractMesh[] = [];
-    const t = own(trunk.createInstance("t"));
-    t.position.set(x, 1.2 * s, z);
-    t.scaling.setAll(s);
-    t.freezeWorldMatrix();
-    meshes.push(t);
-    const bark = 0.85 + vary() * 0.3;
-    t.instancedBuffers.color = new Color4(bark, bark * (0.95 + vary() * 0.1), bark, 1);
-    const shade = 0.82 + vary() * 0.36;
+    const s = 0.8 + rand() * 0.5;
+    const kind = kinds[Math.floor(vary() * kinds.length)];
+    const shade = 0.85 + vary() * 0.3;
     const tint = [0, 0, 0].map(() => shade * (0.92 + vary() * 0.16));
-    // The crown sways from the top of the trunk.
+    // The whole tree sways a little from its foot.
     const sway = new TransformNode("sway", scene);
     sway.parent = root;
-    sway.position.set(x, 2 * s, z);
+    sway.position.set(x, 0, z);
     sway.scaling.setAll(s);
     sway.rotation.y = vary() * Math.PI * 2;
     const phase = vary() * 10;
-    const part = (source: Mesh, bottom: number, height: number, width: number, light = 1, tilt = 0, yaw = 0) => {
-      const m = source.createInstance("c");
+    const meshes: AbstractMesh[] = kind.meshes.map((source) => {
+      const m = source.createInstance("tree");
       m.parent = sway;
       m.isPickable = false;
-      m.rotationQuaternion = Quaternion.RotationYawPitchRoll(yaw, tilt, 0);
-      m.scaling.set(width, height, width);
-      m.position.set(0, bottom - 2, 0).addInPlace(Vector3.Up().applyRotationQuaternion(m.rotationQuaternion).scale(height / 2));
-      if (source === crown) m.instancedBuffers.color = new Color4(tint[0] * light, tint[1] * light, tint[2] * light, 1);
-      meshes.push(m);
-    };
-    if (spec.dead) {
-      part(crown, 2.1, 3, 1.1);
-      const yaw = vary() * Math.PI * 2;
-      part(crown, 2.5 + vary() * 0.4, 1.3, 0.4, 1, 0.75, yaw);
-      part(crown, 3.2 + vary() * 0.4, 1, 0.32, 1, 0.75, yaw + 2 + vary() * 2);
-    } else
-      tiers.forEach(([bottom, height, width], i) => {
-        part(crown, bottom, height, width, 1 + i * 0.08);
-        // Snow on the upper part of each tier, sized to sit exactly on its slope.
-        if (cap) part(cap, bottom + height * 0.55 - 0.03, height * 0.45, width * 0.45 * 1.08);
-      });
+      m.instancedBuffers.color = new Color4(tint[0], tint[1], tint[2], 1);
+      return m;
+    });
     meshes.forEach((m) => shadows.addShadowCaster(m));
     swaying.push({ x, z, meshes, node: sway, phase, on: true });
-    const tree = { x, z, radius: 0.7 * s, crown: (spec.dead ? 0.6 : 1.7) * s, height: (spec.dead ? 5.1 : 6.6) * s, meshes, fade: 1, setFade: fader(meshes) };
+    const tree = { x, z, radius: 0.6 * s, crown: kind.model.reach * 0.8 * s, height: kind.model.height * s, meshes, fade: 1, setFade: fader(meshes) };
     trees.push(tree);
     obstacles.push(tree);
     placed++;
   }
 
-  // Rocks and sprinkles never move or fade, so each kind is one mesh drawn many times, which costs one draw call
+  // Rocks and plants never move or fade, so each kind is one mesh drawn many times, which costs one draw call
   // instead of one mesh apiece for the scene to check every frame.
-  const rock = own(MeshBuilder.CreateSphere("rock", { diameter: 1.4, segments: 6 }, scene));
-  rock.material = material(scene, hex(spec.rock));
+  const stones: ModelName[] = ["Rock_Medium_1", "Rock_Medium_2", "Rock_Medium_3"];
+  // The kit paints its rocks a dark mossy grey-green; lifted, they come out the pale stone of its pictures. Away
+  // from the grass the moss looks wrong, so those are plain stone in the world's own color.
+  const mossy = spec.floor === "grass";
+  const rocks = stones.map((name) => own(sourceMeshes(scene, name, { bark: hex(spec.rock).scale(mossy ? 1.7 : 1), plain: !mossy })[0]));
   for (let i = 0; i < (home ? 8 : 30); i++) {
     const at = spotIn(spec.id, rand, MAP_RADIUS);
     if (!at || !clear(at[0], at[1], 6)) continue;
-    const size = new Vector3(0.6 + rand(), 0.4 + rand() * 0.5, 0.6 + rand());
-    rock.thinInstanceAdd(Matrix.Compose(size, Quaternion.Identity(), new Vector3(at[0], 0.2, at[1])), false);
+    // The kit's rocks are boulders; these are about the size of the old ones, a metre or two across.
+    const size = new Vector3(0.25 + rand() * 0.3, 0.2 + rand() * 0.25, 0.25 + rand() * 0.3);
+    const rock = rocks[Math.floor(vary() * rocks.length)];
+    rock.thinInstanceAdd(Matrix.Compose(size, Quaternion.RotationYawPitchRoll(vary() * Math.PI * 2, 0, 0), new Vector3(at[0], 0, at[1])), false);
   }
 
-  const sprinkle = own(MeshBuilder.CreateSphere("sprinkle", { diameter: 0.25, segments: 4 }, scene));
-  sprinkle.material = material(scene, hex(spec.sprinkle), spec.sprinkleGlows);
+  // Bushes, ferns, flowers and mushrooms where the kit has them; ice crystals and embers elsewhere.
+  // A flower's petals are a part of their own, so each plant is a list of meshes placed alike.
+  const sprinkles = spec.plants
+    ? spec.plants.map((name) => sourceMeshes(scene, name, { bark: Color3.White(), leaves: hex(spec.crown) }).map(own))
+    : [[own(MeshBuilder.CreateSphere("sprinkle", { diameter: 0.25, segments: 4 }, scene))]];
+  if (!spec.plants) sprinkles[0][0].material = material(scene, hex(spec.sprinkle), spec.sprinkleGlows);
   for (let i = 0; i < (home ? 60 : 120); i++) {
     const at = spotIn(spec.id, rand, MAP_RADIUS);
     if (!at) continue;
-    sprinkle.thinInstanceAdd(Matrix.Translation(at[0], 0.12, at[1]), false);
+    if (!spec.plants) {
+      sprinkles[0][0].thinInstanceAdd(Matrix.Translation(at[0], 0.12, at[1]), false);
+      continue;
+    }
+    if (!clear(at[0], at[1], 3)) continue;
+    const s = 0.6 + vary() * 0.4;
+    const place = Matrix.Compose(new Vector3(s, s, s), Quaternion.RotationYawPitchRoll(vary() * Math.PI * 2, 0, 0), new Vector3(at[0], 0, at[1]));
+    for (const m of sprinkles[Math.floor(vary() * sprinkles.length)]) m.thinInstanceAdd(place, false);
   }
-  for (const m of [rock, sprinkle]) {
+  for (const m of [...rocks, ...sprinkles.flat()]) {
     m.thinInstanceBufferUpdated("matrix");
     m.thinInstanceRefreshBoundingInfo();
     m.isVisible = m.thinInstanceCount > 0;
+    m.receiveShadows = true;
   }
-  if (spec.sprinkleGlows) glowing(sprinkle);
+  if (spec.sprinkleGlows) glowing(sprinkles[0][0]);
 
   if (spec.lava) {
     const lavaMat = material(scene, new Color3(1, 0.35, 0.1), true);
@@ -978,8 +978,8 @@ export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Gr
         for (const m of tree.meshes) m.setEnabled(on);
       }
       if (!on || d > SWAY_REACH) continue;
-      tree.node.rotation.x = 0.03 * Math.sin(t * 1.3 + tree.phase);
-      tree.node.rotation.z = 0.03 * Math.sin(t * 1.05 + tree.phase * 1.7);
+      tree.node.rotation.x = 0.012 * Math.sin(t * 1.3 + tree.phase);
+      tree.node.rotation.z = 0.012 * Math.sin(t * 1.05 + tree.phase * 1.7);
     }
   });
 

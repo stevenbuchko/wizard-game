@@ -7,13 +7,13 @@ An iPad game for a 7-year-old. Touch the ground to walk; the wizard finds his wa
 - **His wizard**: the 🧙 button on the title screen picks the robe, crystal, staff, hood or hat, and his name, which titles the start screen.
 - **Saved progress**: friends, stars, his wizard's look and name, and the sound setting stay on the iPad between visits.
 
-What's next is in `ROADMAP.md`. Babylon.js, TypeScript and Vite. The characters are placeholder primitives until the rigged 3D models are bought. Everything imports Babylon through `src/babylon.ts`, which keeps the download to about 1.5 MB.
+What's next is in `ROADMAP.md`. Babylon.js, TypeScript and Vite. The characters are placeholder primitives until the rigged 3D models are bought. Everything imports Babylon through `src/babylon.ts`, which keeps the code to about 2 MB; the nature models add 0.5 MB.
 
 ## Adding a dragon from his description
 
 He describes a dragon: its colors, what it breathes, what beats it, where it lives. Add one entry to `DRAGONS` in `src/dragons.ts`; the comment there explains each field. Give it a home spot at least 10 away from the others in its world. If a new dragon pushes the total past what a line asks for, nothing else changes; if it's a new world, add it to `src/areas.ts` with the way it lies from the middle (`at`), and the ring shares itself out among the worlds.
 
-Each world's look (sky, mountains, ground, tufts, trees and the film grade) is data in `src/areas.ts`, which `src/world.ts` paints onto its slice of the map. The layout (the home's size, the slices, where a world's own spots land) is `src/map.ts`. Effects are in `src/effects.ts`, sounds and music in `src/audio.ts` (all synthesized), and the screen overlay in `src/ui.ts` and `index.html`.
+Each world's look (sky, mountains, ground, tufts, which trees grow and their tints, and the film grade) is data in `src/areas.ts`, which `src/world.ts` paints onto its slice of the map. The trees, rocks, grass, bushes, ferns, flowers and mushrooms are from Quaternius's Stylized Nature MegaKit (CC0, free at https://quaternius.itch.io/stylized-nature-megakit), cut down for the iPad and packed into `public/nature/` by `tools/pack-nature.mjs`, which `src/nature.ts` reads without a glTF loader. To change which models are packed or how far they're cut, edit the lists at the top of the script, download the kit's Standard zip, and run `node tools/pack-nature.mjs <unzipped folder>`. The layout (the home's size, the slices, where a world's own spots land) is `src/map.ts`. Effects are in `src/effects.ts`, sounds and music in `src/audio.ts` (all synthesized), and the screen overlay in `src/ui.ts` and `index.html`.
 
 ## Run
 

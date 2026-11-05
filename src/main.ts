@@ -17,6 +17,7 @@ import { applyLook, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spel
 import { DRAGONS, WEAKNESS, type Element } from "./dragons";
 import { bolt, burst, trail, type Sparkle } from "./effects";
 import { MAP_RADIUS, regionAt, spawnOf, toMap, WORLDS } from "./map";
+import { loadNature } from "./nature";
 import { PathGrid } from "./path";
 import { buildWorld, glowing, QUALITY, setupFilm, setupLights, type Star, type Weights, type World } from "./world";
 import { setBattleMusic, setMuted, sfx, startMusic, unlockAudio } from "./audio";
@@ -1004,6 +1005,7 @@ ui.friends(data.friends.length, dragons.length);
 ui.stars(data.stars.length);
 ui.muted(data.muted);
 
+await loadNature();
 world = buildWorld(scene, shadows, (g) => film.grade(g), DRAGONS.map((d) => toMap(d.area, ...d.home)), [...beds.values()], data.stars);
 world.setFriends(data.friends);
 makeGrid();

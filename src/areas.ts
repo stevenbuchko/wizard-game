@@ -1,3 +1,5 @@
+import type { ModelName } from "./nature";
+
 export type AreaId = "forest" | "snow" | "volcano" | "summit" | "home";
 
 // The film finish. Saturation and densities run -100 to 100; hues are degrees, tinting the highlights and the shadows.
@@ -19,15 +21,15 @@ export interface AreaSpec {
   peaks?: string; // snow on the mountain tops
   ground: string;
   floor: "grass" | "snow" | "ash" | "crystal"; // how the ground is painted, and what grows from it
-  tuft: string;
-  trunk: string;
-  crown: string;
+  tuft: string; // the grass tufts' tint, or the color of the frost, stalks or shards that stand in for them
+  kinds: ModelName[]; // the kit's trees that grow here, picked at random
+  trunk: string; // a tint over the kit's painted bark; white keeps it as painted
+  crown: string; // the leaves' color; the kit paints them white
   crownGlows?: boolean;
-  cap?: string; // snow on the treetops
-  dead?: boolean; // thin charred spires instead of full trees
   trees: number;
-  rock: string;
-  sprinkle: string; // flowers, ice crystals or embers
+  rock: string; // a tint over the kit's rocks
+  plants?: ModelName[]; // bushes, ferns, flowers and mushrooms from the kit, instead of sprinkles
+  sprinkle: string; // ice crystals or embers, where there are no plants
   sprinkleGlows?: boolean;
   lava?: boolean;
   beds?: string; // a straw bed at every dragon's spot, for the home
@@ -48,10 +50,12 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     ground: "#5c9940",
     floor: "grass",
     tuft: "#7dbd4c",
-    trunk: "#664224",
-    crown: "#215c33",
+    kinds: ["CommonTree_1", "CommonTree_3", "CommonTree_5", "CommonTree_1", "Pine_4"],
+    trunk: "#ffffff",
+    crown: "#8cc63c",
     trees: 150,
-    rock: "#8c8c85",
+    rock: "#ffffff",
+    plants: ["Bush_Common", "Fern_1", "Flower_3_Group", "Flower_4_Group", "Mushroom_Common", "Fern_1"],
     sprinkle: "#ffd94d",
     grade: { exposure: 1.3, contrast: 1.15, saturation: 35, highlights: [45, 25], shadows: [215, 30], bloom: 0.8 },
     lineColor: "#6fdc8c",
@@ -69,11 +73,11 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     ground: "#e9eff5",
     floor: "snow",
     tuft: "#9fbcb0",
-    trunk: "#5a4030",
-    crown: "#3d6b5a",
-    cap: "#ffffff",
+    kinds: ["Pine_1", "Pine_4", "Pine_5"],
+    trunk: "#d8d0cc",
+    crown: "#6f9f8a",
     trees: 110,
-    rock: "#a8b4bf",
+    rock: "#e4eef6",
     sprinkle: "#bfe6ff",
     sprinkleGlows: true,
     grade: { exposure: 1.15, contrast: 1.1, saturation: 20, highlights: [200, 10], shadows: [220, 50], bloom: 0.95 },
@@ -91,11 +95,11 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     ground: "#3d302d",
     floor: "ash",
     tuft: "#2e2522",
-    trunk: "#2b2321",
-    crown: "#2b2321",
-    dead: true,
+    kinds: ["DeadTree_1", "DeadTree_2", "DeadTree_3"],
+    trunk: "#4a3f3c",
+    crown: "#4a3f3c",
     trees: 70,
-    rock: "#5a4d48",
+    rock: "#6e5f5a",
     sprinkle: "#ff7a2e",
     sprinkleGlows: true,
     lava: true,
@@ -115,12 +119,12 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     ground: "#8a86ab",
     floor: "crystal",
     tuft: "#c9b6ff",
-    trunk: "#5c5880",
-    crown: "#b49bff",
+    kinds: ["DeadTree_1", "DeadTree_2", "DeadTree_3"],
+    trunk: "#c9b6ff",
+    crown: "#c9b6ff",
     crownGlows: true,
-    dead: true,
     trees: 45,
-    rock: "#c8c4e0",
+    rock: "#ddd4ff",
     sprinkle: "#ffe28a",
     sprinkleGlows: true,
     grade: { exposure: 1.1, contrast: 1.15, saturation: 20, highlights: [50, 30], shadows: [260, 50], bloom: 0.7 },
@@ -139,10 +143,12 @@ export const AREAS: Record<AreaId, AreaSpec> = {
     ground: "#79a84a",
     floor: "grass",
     tuft: "#9bcf5a",
-    trunk: "#6b4a2a",
-    crown: "#4f8f3a",
+    kinds: ["CommonTree_3", "CommonTree_5"],
+    trunk: "#ffffff",
+    crown: "#a6d84a",
     trees: 24,
-    rock: "#a39a8a",
+    rock: "#ffffff",
+    plants: ["Flower_4_Group", "Flower_3_Group", "Bush_Common", "Fern_1"],
     sprinkle: "#ff8fc8",
     beds: "#d9b45a",
     grade: { exposure: 1.25, contrast: 1.1, saturation: 35, highlights: [35, 30], shadows: [280, 25], bloom: 0.8 },
