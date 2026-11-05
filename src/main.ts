@@ -1133,7 +1133,7 @@ ui.stars(data.stars.length);
 ui.muted(data.muted);
 
 await nature;
-world = buildWorld(scene, shadows, (g) => film.grade(g), DRAGONS.map((d) => toMap(d.area, ...d.home)), [...beds.values()], data.stars);
+world = buildWorld(scene, shadows, (g) => film.grade(g), DRAGONS.map((d) => toMap(d.area, ...d.home)), [...[...beds].map(([d, at]) => ({ at, size: d.spec.size ?? 1 })), ...babyBeds.map((at) => ({ at, size: 1 }))], data.stars);
 showFriends();
 makeGrid();
 for (const d of dragons) if (!d.friend) d.root.rotation.y = yawTo(d.root.position, spawnOf(d.spec.area).at);

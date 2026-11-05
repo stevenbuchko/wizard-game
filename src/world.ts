@@ -629,11 +629,17 @@ function spotIn(id: AreaId, rand: () => number, reach: number): [number, number]
   return ownerAt(x, z, rand()) === id ? [x, z] : null;
 }
 
+// A bed at home, sized to the dragon that sleeps in it.
+export interface Nest {
+  at: Vector3;
+  size: number;
+}
+
 interface Shared {
   root: TransformNode;
   shadows: ShadowGenerator;
   clearOf: Vector3[];
-  beds: Vector3[];
+  nests: Nest[];
   collected: string[];
   world: World;
   swaying: Scenery[];
@@ -649,8 +655,96 @@ interface Scenery {
   on: boolean;
 }
 
+// A dragon's nest: a low mound woven of crossing sticks, a few poking out, with a cup of loose straw and a little down
+// in the middle. Every piece carries its own color, so the whole nest is one mesh and one draw call.
+function buildNest(scene: Scene, straw: Color3, rand: () => number): Mesh {
+  const parts: Mesh[] = [];
+  const paint = (m: Mesh, c: Color3) => {
+    const n = m.getTotalVertices();
+    const colors = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) colors.set([c.r, c.g, c.b, 1], i * 4);
+    m.setVerticesData("color", colors);
+    parts.push(m);
+  };
+  const bark = () => {
+    const v = 0.75 + rand() * 0.5;
+    return new Color3(0.36 * v, 0.24 * v, 0.13 * v);
+  };
+  const stalk = () => straw.scale(0.75 + rand() * 0.35);
+  // A thin rod laid at (x, y, z), pointing along yaw, tipped by pitch and roll.
+  const rod = (len: number, width: number, sides: number, x: number, y: number, z: number, yaw: number, pitch: number, roll: number, c: Color3) => {
+    const m = MeshBuilder.CreateCylinder("twig", { height: len, diameterTop: width * 0.6, diameterBottom: width, tessellation: sides, cap: Mesh.NO_CAP }, scene);
+    m.bakeTransformIntoVertices(Matrix.RotationZ(Math.PI / 2).multiply(Matrix.Compose(Vector3.One(), Quaternion.RotationYawPitchRoll(yaw, pitch, roll), new Vector3(x, y, z))));
+    paint(m, c);
+  };
+
+  // The mound under the sticks, dark at the ground so the nest sits in it rather than on it.
+  const profile = [
+    [0, 0.2], [1.2, 0.24], [1.8, 0.42], [2.2, 0.72], [2.55, 0.86], [2.85, 0.72], [3.05, 0.4], [3.15, 0.05],
+  ].map(([x, y]) => new Vector3(x, y, 0));
+  const mound = MeshBuilder.CreateLathe("mound", { shape: profile, tessellation: 28, sideOrientation: Mesh.DOUBLESIDE }, scene);
+  const pos = mound.getVerticesData("position")!;
+  const shade = new Float32Array((pos.length / 3) * 4);
+  for (let i = 0; i < pos.length / 3; i++) {
+    const r = Math.hypot(pos[i * 3], pos[i * 3 + 2]);
+    // Lumpy rather than turned on a lathe, and dark, so the gaps between sticks read as depth.
+    const t = Math.atan2(pos[i * 3], pos[i * 3 + 2]);
+    const lump = 1 + 0.05 * Math.sin(3 * t + 1) + 0.04 * Math.sin(7 * t + 2);
+    pos[i * 3] *= lump;
+    pos[i * 3 + 2] *= lump;
+    pos[i * 3 + 1] *= 1 + 0.08 * Math.sin(5 * t);
+    const c = r < 1.9 ? straw.scale(0.5) : bark().scale(0.4 + Math.min(1, pos[i * 3 + 1] / 0.8) * 0.3);
+    shade.set([c.r, c.g, c.b, 1], i * 4);
+  }
+  mound.setVerticesData("position", pos);
+  mound.setVerticesData("color", shade);
+  parts.push(mound);
+
+  // The wall: rings of sticks laid round the rim, each tipped a different way so they cross like weaving.
+  for (let i = 0; i < 110; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 2.05 + rand() * 1.0;
+    const y = 0.86 - Math.abs(r - 2.55) * 1.1 + (rand() - 0.3) * 0.12;
+    rod(1.3 + rand() * 1.3, 0.08 + rand() * 0.07, 4, Math.sin(a) * r, Math.max(0.12, y), Math.cos(a) * r, a + (rand() - 0.5) * 0.8, (rand() - 0.5) * 0.5, (rand() - 0.5) * 0.3, bark());
+  }
+  // The outer slope, sticks lying along it down to the ground.
+  for (let i = 0; i < 60; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 2.75 + rand() * 0.4;
+    rod(1.0 + rand() * 1.2, 0.08 + rand() * 0.06, 4, Math.sin(a) * r, 0.15 + (3.15 - r) * 1.2, Math.cos(a) * r, a + (rand() - 0.5) * 1.4, (rand() - 0.5) * 0.4, (rand() - 0.5) * 0.6, bark());
+  }
+  // Strays sticking out, which break up the outline.
+  for (let i = 0; i < 12; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 2.6 + rand() * 0.5;
+    rod(1.2 + rand() * 1.0, 0.06 + rand() * 0.04, 4, Math.sin(a) * r, 0.5 + rand() * 0.3, Math.cos(a) * r, a + Math.PI / 2 + (rand() - 0.5) * 1.2, (rand() - 0.5) * 0.4, (rand() - 0.3) * 0.7, bark());
+  }
+  // Straw in the cup, lying every which way.
+  for (let i = 0; i < 80; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = Math.sqrt(rand()) * 2.1;
+    const y = 0.24 + Math.max(0, r - 1.2) * 0.45;
+    rod(0.7 + rand() * 0.7, 0.06, 3, Math.sin(a) * r, y, Math.cos(a) * r, rand() * Math.PI, (rand() - 0.5) * 0.25, (rand() - 0.5) * 0.25, stalk());
+  }
+  // A few tufts of down.
+  for (let i = 0; i < 4; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 0.6 + rand() * 1.1;
+    const down = MeshBuilder.CreateSphere("down", { diameter: 0.35 + rand() * 0.2, segments: 4 }, scene);
+    down.bakeTransformIntoVertices(Matrix.Compose(new Vector3(1, 0.45, 1), Quaternion.Identity(), new Vector3(Math.sin(a) * r, 0.3, Math.cos(a) * r)));
+    paint(down, new Color3(0.96, 0.93, 0.86));
+  }
+
+  const nest = Mesh.MergeMeshes(parts, true)!;
+  const m = material(scene, Color3.White());
+  nest.material = m;
+  nest.isPickable = false;
+  nest.receiveShadows = true;
+  return nest;
+}
+
 // One region's ground, trees, rocks, sprinkles, tufts and stars, each only on its own part of the map.
-function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, beds, collected, world, swaying }: Shared) {
+function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, nests, collected, world, swaying }: Shared) {
   const home = spec.id === "home";
   const vary = random(spec.trees * 31 + 7); // looks only, so trees stay where they are when looks change
   const rand = random(spec.id.length * 97 + spec.trees);
@@ -788,20 +882,14 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
   }
 
   if (spec.beds) {
-    const straw = material(scene, hex(spec.beds));
-    const hay = material(scene, hex(spec.beds).scale(0.8));
-    for (const p of beds) {
-      const rim = own(MeshBuilder.CreateTorus("bed", { diameter: 5.5, thickness: 1.1, tessellation: 24 }, scene));
-      rim.material = straw;
-      rim.scaling.y = 0.45;
-      rim.position.set(p.x, 0.2, p.z);
-      rim.receiveShadows = true;
-      const mat = own(MeshBuilder.CreateDisc("hay", { radius: 2.4, tessellation: 24 }, scene));
-      mat.material = hay;
-      mat.rotation.x = Math.PI / 2;
-      mat.position.set(p.x, 0.08, p.z);
-      mat.receiveShadows = true;
+    // One nest drawn at every bed, turned and sized a little differently so they don't read as copies.
+    const nest = own(buildNest(scene, hex(spec.beds), random(23)));
+    for (const { at, size } of nests) {
+      const s = size * (0.94 + vary() * 0.12);
+      nest.thinInstanceAdd(Matrix.Compose(new Vector3(s, s * (0.9 + vary() * 0.2), s), Quaternion.RotationYawPitchRoll(vary() * Math.PI * 2, 0, 0), new Vector3(at.x, 0, at.z)), false);
     }
+    nest.thinInstanceBufferUpdated("matrix");
+    nest.thinInstanceRefreshBoundingInfo();
   }
 
   scatterTufts(scene, spec, root, vary, () => {
@@ -841,7 +929,7 @@ function board(scene: Scene, width: number, height: number, root: TransformNode)
 
 // The whole map at once: the home in the middle, every world around it, the lines between them, and a wall of light on the
 // lines of each world he can't go into yet.
-export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Grade) => void, keepClear: Vector3[], beds: Vector3[], collected: string[]): World {
+export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Grade) => void, keepClear: Vector3[], nests: Nest[], collected: string[]): World {
   const root = new TransformNode("world", scene);
   scene.fogMode = Scene.FOGMODE_LINEAR;
   scene.fogStart = 45;
@@ -853,9 +941,9 @@ export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Gr
   // Clear of trees: dragons' spots, beds, the signs, where the lines meet, and a way from the middle out into each world.
   const ways = WORLDS.flatMap((id) => Array.from({ length: 9 }, (_, i) => spawnOf(id).at.scale(i / 8)));
   const corners = WORLDS.flatMap((id) => sliceOf(id).map((a) => new Vector3(Math.sin(a) * HOME_RADIUS, 0, Math.cos(a) * HOME_RADIUS)));
-  const clearOf = [...keepClear, ...beds, ...gates, ...ways, ...corners];
+  const clearOf = [...keepClear, ...nests.map((n) => n.at), ...gates, ...ways, ...corners];
   const world: World = { grounds: new Set(), trees: [], obstacles: [], stars: [], walls: [], setFriends: () => {}, look: () => {} };
-  for (const spec of Object.values(AREAS)) buildRegion(scene, spec, { root, shadows, clearOf, beds, collected, world, swaying });
+  for (const spec of Object.values(AREAS)) buildRegion(scene, spec, { root, shadows, clearOf, nests, collected, world, swaying });
 
   // The lines: a ring round the home, and a spoke out between every two worlds.
   const lineMat = material(scene, hex("#fff2c8"), true);

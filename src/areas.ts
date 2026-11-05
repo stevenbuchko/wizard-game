@@ -32,7 +32,7 @@ export interface AreaSpec {
   sprinkle: string; // ice crystals or embers, where there are no plants
   sprinkleGlows?: boolean;
   lava?: boolean;
-  beds?: string; // a straw bed at every dragon's spot, for the home
+  beds?: string; // the straw in a nest at every dragon's bed, for the home
   grade: Grade;
   lineColor: string; // its line's glow, and the edge of its dragons-left row
   at: number; // which way the world lies from the home in the middle, in degrees from +z toward +x
