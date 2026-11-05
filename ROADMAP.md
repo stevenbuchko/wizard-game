@@ -239,7 +239,11 @@ If the frame rate still falls short, add a quality level chosen at startup from 
 
 ## 13. The Quaternius forest
 
-**Status:** ready, after item 8. Picked by Steven 2026-11-04, with the models in item 2.
+**Status:** done 2026-11-04 (`7302e75`). Frame cost measured in the browser at 1180×820 against the live site, not on the iPad itself. Download growth (2.1 → 2.6 MB) agreed by Steven.
+
+**As built:** the kit is CC0, not the "no separate download" license described below, and only its free Standard half (68 models) is used. No glTF loader: `tools/pack-nature.mjs` cuts the chosen models (bark with meshoptimizer's sloppy simplifier, since the careful one stalls on the kit's seams; leaf cards thinned and enlarged), quantizes them into `public/nature/nature.bin` (280 KB) with 128–256 px textures, and `src/nature.ts` reads it. Trees are 640–1,700 triangles. Leaves use the kit's white textures, tinted by each world's `crown`; the green `_C` ones and all leaf and grass vertex colors (wind weights, black at the stem) are left out. Forest and home: round trees and a few pines, kit grass, bushes, ferns, flowers, mushrooms. Snow: frosted pines. Volcano: dead trees. Summit: dead trees untextured in glowing lavender, since the dark bark multiplies any glow. Rocks are the kit's, mossy on grass and plain stone elsewhere. Leaf cards fade to alpha² × 0.5 so a crown clears. The build targets ES2022 for top-level await. Forest per frame: 482k vs 460k triangles, 179 vs 159 draw calls; the summit got cheaper.
+
+**Was:** ready, after item 8. Picked by Steven 2026-11-04, with the models in item 2.
 
 **Why:** the picked dragon and wizard are hand-painted, and the procedural trees and ground from item 1 won't match them. Steven picked the look of the Quaternius Stylized Nature MegaKit: soft, chunky, bright trees, ferns, rocks and mushrooms. Its picture is on the shortlist page in item 2. It goes after item 8 because it adds to the frame cost. It doesn't need item 2, so it can be built first.
 
@@ -260,6 +264,7 @@ If the frame rate still falls short, add a quality level chosen at startup from 
 
 ## Done
 
+- 2026-11-04: the Quaternius forest: the kit's trees, rocks, grass and plants in every world, packed small without a glTF loader; download 2.6 MB (`7302e75`).
 - 2026-11-04: follow camera: the view eases round behind him while he walks or flies, at up to 90°/s, eased in and out; short steps, walking toward the screen, a finger on the camera and scripted shots leave it alone (`2b1c5ce`).
 - 2026-11-04: one big world: the home in the middle with every world around it, a glowing line between each, walls of light on locked worlds, the dragons-left rows on posts at the lines, and sky, fog and grade blending as he crosses (`407affc`).
 - 2026-11-04: dragons left in each world: a row of dragons in their own colors inside each portal's ring and in the corner, lit for each friend, gold with a star when a world is done (`ae4bc3f`).
