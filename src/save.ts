@@ -46,3 +46,15 @@ export function save(data: SaveData) {
     // Private browsing or full storage: the game still plays, it just won't remember.
   }
 }
+
+// Starting again keeps his wizard and the sound. The old save is put aside where the game never reads it, so it can be
+// copied back by hand if he didn't mean it.
+export function restart(data: SaveData) {
+  try {
+    const old = localStorage.getItem(KEY);
+    if (old) localStorage.setItem(`${KEY}-before-restart`, old);
+  } catch {
+    // Nothing to put aside.
+  }
+  save({ ...defaults(), look: data.look, name: data.name, muted: data.muted });
+}

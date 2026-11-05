@@ -213,11 +213,21 @@ If the frame rate still falls short, add a quality level chosen at startup from 
 
 ## 10. Endless dragons, or start again
 
-**Status:** ready. Steven picked both, 2026-11-04. The session writes the build below and agrees it with him before coding.
+**Status:** ready. Steven picked both, and agreed the build below, 2026-11-04.
 
 **Why:** Steven, 2026-11-04: "somehow have unlimited dragons and/or ability to restart the game." Once every dragon is a friend there is nothing left to befriend.
 
-**Build:** to be written once he picks. Things a build will meet: friends live on beds in a ring at the home (`beds` in `src/main.ts`), sized for the 9 dragons; the dragons-left rows (`drawTally` in `src/tally.ts`) assume a fixed count per world; the King is the ending. A restart wipes the save (`src/save.ts`), and a 7-year-old can't be asked to confirm in words.
+**Build:**
+- **Babies hatch after the King:** once the King is a friend, a 🥚🐣 banner follows his 🎉, and one baby dragon waits in each of the forest, snow and volcano, on the first dragons' spots (they sleep at home by then). The summit stays the King's.
+  - A baby's look comes from its id (`baby-<world>-<n>`), so the save keeps only the id in `friends`: body and belly from a set of color pairs, a random element beaten by its `WEAKNESS`, size 0.8 to 1.2, horn length. The usual three strong hits befriend it.
+  - Befriending one schedules the next in that world about 20 seconds later, hatching only while he's out of sight of its spot, with a puff of sparkles.
+- **Beds:** a second ring of 12 beds at home, outside the first, three to each quarter between the ways out. The newest 12 babies sleep there; an older one that isn't walking with him leaves the map, but stays in the save and the count. Dragons cost few draw calls since they were merged, but the home shouldn't grow forever.
+- **Summit:** every friend still flies in there, but only the first eight and the ones he picked, so a crowd of babies doesn't follow him up.
+- **Dragons-left rows:** a finished world keeps its gold row and ⭐, plus one more slot for its baby: dim in the baby's own color while it waits, lit once befriended. The slots shrink a little to fit five.
+- **Friends row:** the nine 🐉 stay, followed by `+N` for the babies, a number as the ⭐ count already uses.
+- **Start again:** a small 🔄 in the corner of the title screen, shown only once there is something to lose. Holding it for 3 seconds fills a ring round it with a rising sound; letting go early drains it. Full, it whooshes and reloads into a fresh game. It wipes friends, stars and who walks with him, and keeps the robe, hat, staff, name and sound. The old save is first copied to `wizard-game-v1-before-restart`, which the game never reads, so Steven can copy it back from the console.
+
+**Done when:** in the browser at 1180×820, a save with all nine friends shows a baby in each of the three worlds; befriending one lights its slot, gives it an outer bed, and a new one hatches out of sight; 13 babies leave the oldest off the map; a fresh save shows no 🔄; holding 🔄 under 3 seconds does nothing; and a full hold wipes progress but keeps his look.
 
 ## 11. More to explore
 

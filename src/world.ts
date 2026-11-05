@@ -26,7 +26,7 @@ import {
 import { AREAS, type AreaId, type AreaSpec, type Grade } from "./areas";
 import { EDGE, gateOf, HOME_RADIUS, MAP_RADIUS, ownerAt, sliceOf, spawnOf, spokes, toMap, WORLDS } from "./map";
 import { model, sourceMeshes, type ModelName } from "./nature";
-import { drawTally } from "./tally";
+import { drawTally, type BabySlot } from "./tally";
 
 export interface Obstacle {
   x: number;
@@ -547,7 +547,7 @@ export interface World {
   obstacles: Obstacle[];
   stars: Star[];
   walls: Mesh[];
-  setFriends(friends: string[]): void;
+  setFriends(friends: string[], babies?: Partial<Record<AreaId, BabySlot>>): void;
   look(weights: Weights): void;
 }
 
@@ -917,10 +917,10 @@ export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Gr
     return { id, wall, signs };
   });
 
-  world.setFriends = (friends) => {
+  world.setFriends = (friends, babies = {}) => {
     for (const { id, tally, lock } of gateSigns) {
       const open = friends.length >= AREAS[id].needs;
-      drawTally(tally.texture.getContext() as unknown as CanvasRenderingContext2D, id, friends);
+      drawTally(tally.texture.getContext() as unknown as CanvasRenderingContext2D, id, friends, babies[id]);
       tally.texture.update();
       lock.mesh.isVisible = !open;
       if (!open) drawSign(lock.texture, AREAS[id].needs, friends.length);

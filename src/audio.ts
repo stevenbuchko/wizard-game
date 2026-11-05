@@ -78,6 +78,28 @@ export const sfx = {
   star: () => arpeggio([1047, 1319, 1568, 2093], 0.05, 0.2, 0.12),
 };
 
+// A tone that climbs while he holds the start-again button; the returned stop fades it out.
+export function rise(seconds: number): () => void {
+  if (!ctx || !master) return () => {};
+  const c = ctx;
+  const t = c.currentTime;
+  const osc = c.createOscillator();
+  const gain = c.createGain();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(200, t);
+  osc.frequency.exponentialRampToValueAtTime(900, t + seconds);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.12, t + 0.1);
+  osc.connect(gain).connect(master);
+  osc.start(t);
+  return () => {
+    const n = c.currentTime;
+    gain.gain.cancelScheduledValues(n);
+    gain.gain.setTargetAtTime(0.0001, n, 0.05);
+    osc.stop(n + 0.3);
+  };
+}
+
 // Gentle background music: a wandering pentatonic tune over a slow four-chord bass.
 const SCALE = [392, 440, 523, 587, 659, 784, 880];
 const BASS = [131, 110, 87, 98];

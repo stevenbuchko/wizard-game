@@ -45,6 +45,11 @@
       #start h1 { margin: 0; font-size: 54px; font-weight: 600; }
       #startButtons { display: flex; align-items: center; gap: 36px; }
       #play { width: 160px; height: 160px; border-radius: 50%; border: 6px solid #fff; background: #ef9f27; font-size: 72px; color: #fff; }
+      #restart { position: absolute; top: calc(20px + env(safe-area-inset-top)); left: calc(20px + env(safe-area-inset-left)); width: 76px; height: 76px; padding: 0; border-radius: 50%; border: none; background: rgba(0, 0, 0, 0.3); font-size: 32px; }
+      #restart svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; }
+      #restart circle { fill: none; stroke-width: 8; }
+      #restartRing { stroke: #ef9f27; stroke-linecap: round; stroke-dasharray: 276.46; stroke-dashoffset: 276.46; transition: stroke-dashoffset 0.04s linear; }
+      #friends b { color: #fff; font-size: 24px; font-weight: 600; margin-left: 6px; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4); }
       #dress { width: 110px; height: 110px; border-radius: 50%; border: 5px solid #fff; background: #534ab7; font-size: 54px; }
       #wardrobe { position: fixed; top: 50%; right: calc(24px + env(safe-area-inset-right)); transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 18px 24px; border-radius: 28px; background: rgba(30, 42, 74, 0.85); }
       .row { display: flex; flex-wrap: wrap; justify-content: center; max-width: 330px; gap: 14px; }
@@ -91,7 +96,7 @@
         <button id="dressDone" aria-label="Done">✓</button>
       </div>
     </div>
-    <div id="start"><h1>Wizard and Dragons</h1><div id="startButtons"><button id="dress" aria-label="Change wizard">🧙</button><button id="play" aria-label="Play">▶</button></div></div>
+    <div id="start"><button id="restart" class="hidden" aria-label="Start again"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="44" stroke="rgba(255,255,255,0.6)" /><circle id="restartRing" cx="50" cy="50" r="44" /></svg>🔄</button><h1>Wizard and Dragons</h1><div id="startButtons"><button id="dress" aria-label="Change wizard">🧙</button><button id="play" aria-label="Play">▶</button></div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

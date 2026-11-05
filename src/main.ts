@@ -14,15 +14,17 @@ import {
 } from "./babylon";
 import { AREAS, type AreaId } from "./areas";
 import { applyLook, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spell } from "./characters";
-import { DRAGONS, WEAKNESS, type Element } from "./dragons";
+import { DRAGONS, WEAKNESS, type DragonSpec, type Element } from "./dragons";
 import { bolt, burst, trail, type Sparkle } from "./effects";
+import { BABY_BEDS, babyOf, HATCH_DELAY, hatching, isBaby, NESTS, nextBaby } from "./hatch";
 import { MAP_RADIUS, regionAt, spawnOf, toMap, WORLDS } from "./map";
 import { loadNature } from "./nature";
 import { PathGrid } from "./path";
 import { buildWorld, glowing, QUALITY, setupFilm, setupLights, type Star, type Weights, type World } from "./world";
-import { setBattleMusic, setMuted, sfx, startMusic, unlockAudio } from "./audio";
-import { load, MAX_FOLLOWERS, save } from "./save";
-import { ui } from "./ui";
+import { rise, setBattleMusic, setMuted, sfx, startMusic, unlockAudio } from "./audio";
+import { load, MAX_FOLLOWERS, restart, save } from "./save";
+import type { BabySlot } from "./tally";
+import { RESTART_HOLD, ui } from "./ui";
 
 const WALK_SPEED = 5;
 const FLY_SPEED = 11;
@@ -58,14 +60,32 @@ applyLook(wizard, data.look);
 wizard.meshes.forEach((m) => shadows.addShadowCaster(m));
 Object.values(wizard.tips).forEach(glowing);
 
-const dragons = DRAGONS.map((spec) => {
+const dragons: Dragon[] = [];
+const pickable = new Map<AbstractMesh, Dragon>();
+
+function addDragon(spec: DragonSpec): Dragon {
   const d = makeDragon(scene, spec);
   d.meshes.forEach((m) => shadows.addShadowCaster(m));
   // Eyes and the King's crown are the parts made to glow.
   d.meshes.filter((m) => !(m.material as StandardMaterial).emissiveColor.equals(Color3.Black())).forEach(glowing);
   if (data.friends.includes(spec.id)) makeFriend(d);
+  for (const m of [...d.meshes, d.heart]) pickable.set(m, d);
+  dragons.push(d);
   return d;
-});
+}
+
+function removeDragon(d: Dragon) {
+  for (const m of [...d.meshes, d.heart]) {
+    pickable.delete(m);
+    scene.getGlowLayerByName("glow")?.removeIncludedOnlyMesh(m);
+  }
+  dragons.splice(dragons.indexOf(d), 1);
+  petness.delete(d);
+  greetedAt.delete(d);
+  d.root.dispose(false, true);
+}
+
+DRAGONS.forEach(addDragon);
 
 // Each friend's bed at home: a ring round the middle of the map, each bed between two ways out so none is in his path,
 // and the biggest in the centre.
@@ -78,7 +98,29 @@ const beds = new Map<Dragon, Vector3>();
   });
   dragons.filter((d) => !ring.includes(d)).forEach((d, i) => beds.set(d, new Vector3(i * 14, 0, 0)));
 }
-for (const d of dragons) d.root.position.copyFrom(d.friend ? beds.get(d)! : toMap(d.spec.area, ...d.spec.home));
+// The babies' beds: an outer ring, three to each quarter between the ways out.
+const babyBeds = Array.from({ length: BABY_BEDS }, (_, i) => {
+  const a = (Math.PI / 2) * (Math.floor(i / 3) + ((i % 3) + 1) / 4);
+  return new Vector3(Math.sin(a) * 25, 0, Math.cos(a) * 25);
+});
+
+// The newest babies have a bed; an older one has none, and leaves the map unless it's walking with him.
+function babyBed(id: string): Vector3 | undefined {
+  const babies = data.friends.filter(isBaby);
+  const i = babies.indexOf(id);
+  return i >= 0 && i >= babies.length - BABY_BEDS ? babyBeds[i % BABY_BEDS] : undefined;
+}
+
+function bedOf(d: Dragon): Vector3 | undefined {
+  return isBaby(d.spec.id) ? babyBed(d.spec.id) : beds.get(d);
+}
+
+// Babies come back from the save: the ones in a bed or walking with him, and the one waiting in each world.
+const wildBabies = new Map<AreaId, Dragon>();
+const hatchAt = new Map<AreaId, number>(); // when the next baby may hatch in a world, once he's not looking
+for (const id of data.friends.filter(isBaby)) if (babyBed(id) || data.following.includes(id)) addDragon(babyOf(id));
+if (hatching(data.friends)) for (const area of NESTS) wildBabies.set(area, addDragon(babyOf(nextBaby(area, data.friends))));
+for (const d of dragons) d.root.position.copyFrom(d.friend ? (bedOf(d) ?? Vector3.Zero()) : toMap(d.spec.area, ...d.spec.home));
 
 const camera = new ArcRotateCamera("camera", -Math.PI / 2, 1.05, 14, new Vector3(0, 1.5, 0), scene);
 camera.attachControl(canvas, true);
@@ -189,9 +231,9 @@ function makeFriend(d: Dragon) {
   d.heart.isVisible = true;
 }
 
-// The friends he chose walk with him; on the summit, every friend does.
+// The friends he chose walk with him; on the summit, every friend does, except babies he didn't choose.
 function followers(): Dragon[] {
-  const ids = currentArea === "summit" ? data.friends : data.following;
+  const ids = currentArea === "summit" ? [...new Set([...data.friends.filter((id) => !isBaby(id)), ...data.following])] : data.following;
   return ids.map((id) => dragons.find((d) => d.spec.id === id)).filter((d): d is Dragon => !!d?.friend);
 }
 
@@ -339,7 +381,46 @@ function travel(to: AreaId) {
 
 function enterRegion(id: AreaId) {
   currentArea = id;
-  ui.tally(id, data.friends);
+  ui.tally(id, data.friends, false, babySlots()[id]);
+}
+
+// Each world's baby on its dragons-left row: the one waiting there, or the last befriended until the next hatches.
+function babySlots(): Partial<Record<AreaId, BabySlot>> {
+  if (!hatching(data.friends)) return {};
+  const slots: Partial<Record<AreaId, BabySlot>> = {};
+  for (const area of NESTS) {
+    const waiting = wildBabies.get(area);
+    const id = waiting?.spec.id ?? data.friends.filter((f) => f.startsWith(`baby-${area}-`)).at(-1);
+    if (id) slots[area] = { color: babyOf(id).color, lit: !waiting };
+  }
+  return slots;
+}
+
+function showFriends(pop = false) {
+  const nine = data.friends.filter((id) => !isBaby(id)).length;
+  ui.friends(nine, DRAGONS.length, data.friends.length - nine);
+  world.setFriends(data.friends, babySlots());
+  ui.tally(currentArea, data.friends, pop, babySlots()[currentArea]);
+}
+
+// A new baby hatches where he can't see it: far off, or behind the camera.
+function updateHatching() {
+  const ahead = camera.getDirection(Vector3.Forward());
+  for (const [area, at] of hatchAt) {
+    if (now < at || mode === "title") continue;
+    const spot = toMap(area, ...babyOf(nextBaby(area, data.friends)).home);
+    const dx = spot.x - camera.position.x;
+    const dz = spot.z - camera.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 60 && (dx * ahead.x + dz * ahead.z) / (d * (Math.hypot(ahead.x, ahead.z) || 1)) > 0.5) continue;
+    const baby = addDragon(babyOf(nextBaby(area, data.friends)));
+    baby.root.position.copyFrom(spot);
+    baby.root.rotation.y = yawTo(spot, spawnOf(area).at);
+    wildBabies.set(area, baby);
+    hatchAt.delete(area);
+    burst(scene, headOf(baby), "gold", 60);
+    showFriends();
+  }
 }
 
 // Sky, fog and the film grade blend toward the worlds around him, so crossing a line is never a jump.
@@ -549,15 +630,25 @@ function befriend(d: Dragon) {
   const walking = followers();
   if (before.some((f) => !walking.includes(f))) sfx.whoosh();
   const count = data.friends.length;
-  ui.friends(count, dragons.length);
-  world.setFriends(data.friends);
-  ui.tally(currentArea, data.friends, true);
+  if (isBaby(d.spec.id)) {
+    wildBabies.delete(d.spec.area);
+    hatchAt.set(d.spec.area, now + HATCH_DELAY);
+    // The oldest baby's bed goes to this one; it leaves unless it's walking with him.
+    for (const old of dragons.filter((f) => isBaby(f.spec.id) && f.friend && !bedOf(f) && !data.following.includes(f.spec.id))) flyOff(old);
+  }
+  showFriends(true);
   const opened = WORLDS.some((id) => AREAS[id].needs === count);
   if (opened) makeGrid();
-  if (count === dragons.length) {
+  // The King is the ending, and the eggs hatch after it.
+  if (d.spec.id === "king") {
     sfx.celebrate();
     ui.banner("🎉🐉🎉", 4);
     for (let i = 0; i < 4; i++) setTimeout(() => burst(scene, wizardChest().add(new Vector3(0, 3, 0)), "gold", 100), i * 400);
+    setTimeout(() => {
+      sfx.portal();
+      ui.banner("🥚🐣", 2.5);
+      for (const area of NESTS) hatchAt.set(area, now);
+    }, 4500);
     return;
   }
   sfx.friend();
@@ -797,6 +888,7 @@ function updateSize(d: Dragon, pet: boolean, dt: number) {
 }
 
 function updateDragons(dt: number) {
+  const homeless: Dragon[] = [];
   const leader = riding ? riding.root : wizard.root;
   const walking = followers().filter((d) => d !== riding);
   for (const d of dragons) {
@@ -822,7 +914,12 @@ function updateDragons(dt: number) {
       turnToward(d.root, wizard.root.position, dt, 5);
     } else if (d.friend && d !== riding) {
       // A friend not walking with him goes back to its bed, flying when it's far, then turns to watch him.
-      const bed = beds.get(d)!;
+      const bed = bedOf(d);
+      if (!bed) {
+        // An older baby whose bed went to a newer one flies off when he stops walking with it.
+        homeless.push(d);
+        continue;
+      }
       const to = bed.subtract(d.root.position);
       to.y = 0;
       const dist = to.length();
@@ -848,6 +945,15 @@ function updateDragons(dt: number) {
     d.head.rotation.x += (lookUp - d.head.rotation.x) * Math.min(1, dt * 8);
     d.head.position.y = d.headBaseY + Math.sin(d.phase * 0.5) * 0.06;
   }
+  for (const d of homeless) flyOff(d);
+}
+
+function flyOff(d: Dragon) {
+  if (d.root.isEnabled()) {
+    sfx.whoosh();
+    burst(scene, headOf(d), "gold", 40);
+  }
+  removeDragon(d);
 }
 
 function updateBattle() {
@@ -938,8 +1044,6 @@ canvas.addEventListener("pointerdown", (e) => held.add(e.pointerId));
 for (const type of ["pointerup", "pointercancel"]) window.addEventListener(type, (e) => held.delete((e as PointerEvent).pointerId));
 
 // Any part of a dragon, its heart included, counts as tapping it.
-const pickable = new Map<AbstractMesh, Dragon>();
-for (const d of dragons) for (const m of [...d.meshes, d.heart]) pickable.set(m, d);
 
 // A quick touch that barely moves is a tap to walk or fly; anything else turns or zooms the camera.
 let down: { x: number; y: number; t: number } | null = null;
@@ -989,6 +1093,23 @@ ui.onWardrobe(
     mode = "title";
   },
 );
+// Start again shows only once there's something to lose.
+let stopRise = () => {};
+ui.onRestart(
+  data.friends.length > 0 || data.stars.length > 0,
+  (on) => {
+    if (!on) return stopRise();
+    unlockAudio();
+    setMuted(data.muted);
+    stopRise = rise(RESTART_HOLD);
+  },
+  () => {
+    stopRise();
+    sfx.whoosh();
+    restart(data);
+    setTimeout(() => location.reload(), 700);
+  },
+);
 ui.onSpell(cast);
 ui.onRun(walkAway);
 ui.onRide(toggleRide);
@@ -1001,13 +1122,12 @@ ui.onMute(() => {
 });
 ui.title(data.name);
 ui.hearts(hearts);
-ui.friends(data.friends.length, dragons.length);
 ui.stars(data.stars.length);
 ui.muted(data.muted);
 
 await loadNature();
 world = buildWorld(scene, shadows, (g) => film.grade(g), DRAGONS.map((d) => toMap(d.area, ...d.home)), [...beds.values()], data.stars);
-world.setFriends(data.friends);
+showFriends();
 makeGrid();
 for (const d of dragons) if (!d.friend) d.root.rotation.y = yawTo(d.root.position, spawnOf(d.spec.area).at);
 place("forest");
@@ -1035,6 +1155,7 @@ scene.onBeforeRenderObservable.add(() => {
   updateRide(dt);
   updateWizard(dt);
   updateDragons(dt);
+  updateHatching();
   updateBattle();
   updateWorld(dt);
   updateCamera(dt);

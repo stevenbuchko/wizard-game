@@ -1,7 +1,7 @@
 import type { Spell } from "./characters";
 import type { AreaId } from "./areas";
 import type { Look } from "./save";
-import { drawTally, dragonsIn } from "./tally";
+import { drawTally, dragonsIn, type BabySlot } from "./tally";
 
 // The HTML overlay. Everything is icons, no words, because he may not read yet.
 
@@ -19,6 +19,8 @@ function press(el: Element, cb: () => void) {
     cb();
   });
 }
+
+export const RESTART_HOLD = 3; // seconds
 
 export const ui = {
   onStart(cb: () => void) {
@@ -69,6 +71,51 @@ export const ui = {
     });
   },
 
+  // Starting again wipes his friends, so it takes a long hold: a ring fills while he holds and drains if he lets go.
+  // It ticks on a timer, not animation frames, so it also runs when the page gets no frames.
+  onRestart(show: boolean, hold: (on: boolean) => void, done: () => void) {
+    const b = $("restart");
+    b.classList.toggle("hidden", !show);
+    const ring = $("restartRing");
+    const length = 2 * Math.PI * 44;
+    let fill = 0;
+    let holding = false;
+    let finished = false;
+    let timer = 0;
+    let last = 0;
+    const tick = () => {
+      const t = performance.now();
+      fill = Math.max(0, Math.min(1, fill + ((t - last) / 1000) * (holding ? 1 / RESTART_HOLD : -2)));
+      last = t;
+      ring.style.strokeDashoffset = String(length * (1 - fill));
+      if (fill >= 1) {
+        finished = true;
+        clearInterval(timer);
+        done();
+      } else if (!holding && fill <= 0) {
+        clearInterval(timer);
+        timer = 0;
+      }
+    };
+    b.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      if (finished) return;
+      holding = true;
+      hold(true);
+      if (!timer) {
+        last = performance.now();
+        timer = window.setInterval(tick, 33);
+      }
+    });
+    for (const type of ["pointerup", "pointercancel", "pointerleave"]) {
+      b.addEventListener(type, () => {
+        if (!holding || finished) return;
+        holding = false;
+        hold(false);
+      });
+    }
+  },
+
   battle(on: boolean) {
     for (const id of ["spells", "grump", "run"]) $(id).classList.toggle("hidden", !on);
   },
@@ -88,14 +135,16 @@ export const ui = {
   hearts(n: number) {
     $("hearts").textContent = "❤️".repeat(n) + "🤍".repeat(3 - n);
   },
-  friends(n: number, total: number) {
-    $("friends").innerHTML = Array.from({ length: total }, (_, i) => `<span class="${i < n ? "got" : ""}">🐉</span>`).join("");
+  // Babies count as a number after the first nine, like the stars.
+  friends(n: number, total: number, babies = 0) {
+    $("friends").innerHTML =
+      Array.from({ length: total }, (_, i) => `<span class="${i < n ? "got" : ""}">🐉</span>`).join("") + (babies ? `<b>+${babies}</b>` : "");
   },
   // The dragons in the world he's in, under the sound button; the home has no wild dragons, so none there.
-  tally(area: AreaId, friends: string[], pop = false) {
+  tally(area: AreaId, friends: string[], pop = false, baby?: BabySlot) {
     const c = $("tally") as HTMLCanvasElement;
     c.classList.toggle("hidden", !dragonsIn(area).length);
-    drawTally(c.getContext("2d")!, area, friends);
+    drawTally(c.getContext("2d")!, area, friends, baby);
     if (!pop) return;
     c.classList.remove("pop");
     void c.offsetWidth;
