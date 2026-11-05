@@ -22,7 +22,7 @@ Keep the fade in `fader` (`src/world.ts`) working with any new tree meshes.
 
 ## 2. Swap in the bought dragon and wizard
 
-**Status:** waiting on Steven. Picked 2026-11-04. Before this is ready he:
+**Status:** waiting on Steven, who is buying both now (2026-11-04). Before this is ready he:
 1. asks each seller, through their Unity Asset Store page, whether a free web game may ship the model packed, with the file kept out of the public repo;
 2. buys both;
 3. puts the two `.unitypackage` downloads somewhere outside this repo and tells the session where.
@@ -213,7 +213,7 @@ If the frame rate still falls short, add a quality level chosen at startup from 
 
 ## 10. Endless dragons, or start again
 
-**Status:** waiting on Steven's pick between endless dragons, a restart, or both (asked 2026-11-04).
+**Status:** ready. Steven picked both, 2026-11-04. The session writes the build below and agrees it with him before coding.
 
 **Why:** Steven, 2026-11-04: "somehow have unlimited dragons and/or ability to restart the game." Once every dragon is a friend there is nothing left to befriend.
 
