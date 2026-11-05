@@ -23,7 +23,7 @@ Keep the fade in `fader` (`src/world.ts`) working with any new tree meshes.
 ## 2. Swap in the bought dragon and wizard
 
 **Status:** waiting on Steven, who is buying both now (2026-11-04). Before this is ready he:
-1. asks each seller, through their Unity Asset Store page, whether a free web game may ship the model packed, with the file kept out of the public repo;
+1. asks each seller, through their Unity Asset Store page, whether a free web game may ship the model packed, with the file kept out of the public repo. Not asked (Steven, 2026-11-04), so the license question is open;
 2. buys both;
 3. puts the two `.unitypackage` downloads somewhere outside this repo and tells the session where.
 
@@ -45,10 +45,10 @@ Agree the hosting plan below with him before writing code.
 
 **Hosting (license):** both are under the Unity Asset Store EULA. It allows any engine but not shipping a model "in a way that allows others to extract them". The source files must never be committed to this public repo, and the site must not serve a plain `.glb` or `.fbx`.
 
-One way that keeps the push-to-deploy flow:
-- The source models live in a separate private repo on Steven's personal account.
-- `pages.yml` checks it out with a read-only deploy key, which Steven adds as a secret in the GitHub web UI, since `gh` is off limits here.
-- A build step converts the models and packs them into a scrambled binary that the game unpacks in memory.
+Agreed with Steven, 2026-11-04 (no private repo or deploy key):
+- The downloads and the converted models live in `~/wizard-game-models`, outside any git repo. They can be downloaded again from his Unity account.
+- A script run on the Mac converts, trims and packs them into one scrambled binary, which is committed like `public/nature/nature.bin`. It holds exactly what the site serves, so committing it exposes nothing more. The game unscrambles it in memory.
+- Changing the models means repacking on a Mac with that folder and Blender.
 
 Packing doesn't make extraction impossible, so the sellers' replies decide whether this is enough.
 
