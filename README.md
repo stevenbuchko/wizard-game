@@ -28,4 +28,6 @@ npm run dev
 
 Every push to `main` builds and publishes to https://stevenbuchko.github.io/wizard-game/ through `.github/workflows/pages.yml`. `npm run build` writes the same static site to `dist/`. Served over HTTPS, Share → Add to Home Screen installs it full-screen, and `public/sw.js` keeps it playable offline.
 
-`window.game` exposes `walkTo`, `cast`, `toggleRide`, `travel` (puts him at a world's start), `swap` (a friend, at home), `dragons`, `wizard`, `data`, `world`, `currentArea` (where he is now), `mode` and `camera` for play-testing from the console. `localStorage.clear()` resets progress.
+`window.game` exposes `walkTo`, `cast`, `toggleRide`, `travel` (puts him at a world's start), `swap` (a friend, at home), `dragons`, `wizard`, `data`, `world`, `currentArea` (where he is now), `mode`, `camera`, `quality` (the level of finish the startup probe settled on, 0 is the finest) and `film` (`film.quality(n)` sets one) for play-testing from the console.
+
+A slow device draws less finely: at startup the game times its first frames, and under about 45 fps it steps down a level (`QUALITY` in `src/world.ts`), from 1.5 screen pixels per point with 4× smoothing to 1.25 with FXAA, then 1. The film look stays at every level. `localStorage.clear()` resets progress.

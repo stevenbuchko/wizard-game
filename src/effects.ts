@@ -1,4 +1,5 @@
 import { AbstractMesh, Color3, Color4, DynamicTexture, MeshBuilder, ParticleSystem, Scene, StandardMaterial, Vector3 } from "./babylon";
+import { glowing } from "./world";
 import type { Spell } from "./characters";
 
 export type Sparkle = Spell | "gold";
@@ -88,7 +89,7 @@ export function bolt(scene: Scene, from: Vector3, to: Vector3) {
       if (i > 0 && i < 8) p.addInPlace(new Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).scale(branch ? 1.4 : 0.8));
       path.push(p);
     }
-    const tube = MeshBuilder.CreateTube("bolt", { path, radius: branch ? 0.03 : 0.07, tessellation: 5 }, scene);
+    const tube = glowing(MeshBuilder.CreateTube("bolt", { path, radius: branch ? 0.03 : 0.07, tessellation: 5 }, scene));
     tube.material = mat;
     tube.isPickable = false;
     return tube;

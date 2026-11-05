@@ -58,6 +58,12 @@ function material(scene: Scene, color: Color3, glows = false): StandardMaterial 
   return m;
 }
 
+// The glow layer draws only the meshes given to it here, so it costs a few draw calls instead of the whole scene again.
+export function glowing<T extends Mesh>(m: T): T {
+  m.getScene().getGlowLayerByName("glow")?.addIncludedOnlyMesh(m);
+  return m;
+}
+
 // Seeded so the map looks the same every time he plays.
 function random(seed: number): () => number {
   return () => {
@@ -69,6 +75,8 @@ function random(seed: number): () => number {
 }
 
 const SUN = new Vector3(-0.5, -1, 0.4); // the light's direction
+const SHADE_REACH = 20; // trees this close to the camera stay in the scene wherever it looks
+const SWAY_REACH = 35;
 
 export function setupLights(scene: Scene): ShadowGenerator {
   const ambient = new HemisphericLight("ambient", new Vector3(0, 1, 0), scene);
@@ -84,15 +92,30 @@ export function setupLights(scene: Scene): ShadowGenerator {
   return shadows;
 }
 
+// How finely to draw, best first. A device too slow for one steps down to the next at startup; every level keeps
+// the film finish, and gives up sharpness and the smoothest edges instead.
+export const QUALITY = [
+  { pixels: 1.5, samples: 4, bloomKernel: 64 }, // pixels: the most screen pixels per CSS pixel to draw
+  { pixels: 1.25, samples: 1, bloomKernel: 32 }, // one sample smooths edges with FXAA instead, much cheaper on an iPad
+  { pixels: 1, samples: 1, bloomKernel: 32 },
+];
+
+export interface Film {
+  grade(grade: Grade): void;
+  quality(level: number): void;
+}
+
 // The film finish: tone mapping, bloom on whatever is brightest, smooth edges and a light vignette, graded per area.
-export function setupFilm(scene: Scene, camera: ArcRotateCamera): (grade: Grade) => void {
+export function setupFilm(scene: Scene, camera: ArcRotateCamera): Film {
   const film = new DefaultRenderingPipeline("film", true, scene, [camera]);
-  film.samples = 4;
   film.bloomEnabled = true;
-  film.bloomKernel = 64;
   film.bloomScale = 0.5;
   film.bloomWeight = 0.35;
-  const look = scene.imageProcessingConfiguration;
+  // The grade has a configuration of its own: changing the scene's tells every material, which flags every mesh,
+  // about 6 ms each time on a Mac, and the grade changes every frame while he crosses between worlds.
+  // The bloom still reads the scene's exposure, so it gets a typical one, once.
+  scene.imageProcessingConfiguration.exposure = 1.2;
+  const look = new ImageProcessingConfiguration();
   look.toneMappingEnabled = true;
   look.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
   look.vignetteEnabled = true;
@@ -102,13 +125,26 @@ export function setupFilm(scene: Scene, camera: ArcRotateCamera): (grade: Grade)
   look.colorCurvesEnabled = true;
   const curves = new ColorCurves();
   look.colorCurves = curves;
-  return (grade) => {
-    look.exposure = grade.exposure;
-    look.contrast = grade.contrast;
-    curves.globalSaturation = grade.saturation;
-    [curves.highlightsHue, curves.highlightsDensity] = grade.highlights;
-    [curves.shadowsHue, curves.shadowsDensity] = grade.shadows;
-    film.bloomThreshold = grade.bloom;
+  // Changing the finish rebuilds the pipeline, which goes back to the scene's configuration.
+  const attach = () => (film.imageProcessing.imageProcessingConfiguration = look);
+  attach();
+  return {
+    grade(grade) {
+      look.exposure = grade.exposure;
+      look.contrast = grade.contrast;
+      curves.globalSaturation = grade.saturation;
+      [curves.highlightsHue, curves.highlightsDensity] = grade.highlights;
+      [curves.shadowsHue, curves.shadowsDensity] = grade.shadows;
+      film.bloomThreshold = grade.bloom;
+    },
+    quality(level) {
+      const q = QUALITY[level];
+      scene.getEngine().setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, q.pixels));
+      film.samples = q.samples;
+      film.fxaaEnabled = q.samples === 1;
+      film.bloomKernel = q.bloomKernel;
+      attach();
+    },
   };
 }
 
@@ -588,7 +624,17 @@ interface Shared {
   beds: Vector3[];
   collected: string[];
   world: World;
-  swaying: { node: TransformNode; phase: number }[];
+  swaying: Scenery[];
+}
+
+// A tree as the per-frame loop sees it: where it stands, what to hide when it's out of view, and its crown to sway.
+interface Scenery {
+  x: number;
+  z: number;
+  meshes: AbstractMesh[];
+  node: TransformNode;
+  phase: number;
+  on: boolean;
 }
 
 // One region's ground, trees, rocks, sprinkles, tufts and stars, each only on its own part of the map.
@@ -603,8 +649,6 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
     m.isPickable = false;
     return m;
   };
-  // Hidden past the haze, so the far side of the map costs nothing.
-  const fadesAt = (m: Mesh, distance: number) => m.addLODLevel(distance, null);
 
   const floor = paintFloor(scene, spec, vary);
   const groundMat = material(scene, Color3.White());
@@ -624,6 +668,7 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
     g.parent = root;
     g.position.y = home ? 0.02 : 0;
     world.grounds.add(g);
+    if (floor.glow) glowing(g);
   }
 
   // Every tree is an instance, with the source meshes hidden, so each one can be hidden on its own.
@@ -640,11 +685,7 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
     m.registerInstancedBuffer("color", 4);
     m.instancedBuffers.color = new Color4(1, 1, 1, 1);
   }
-  for (const m of [trunk, crown, cap]) {
-    if (!m) continue;
-    m.isVisible = false;
-    fadesAt(m, 110);
-  }
+  for (const m of [trunk, crown, cap]) if (m) m.isVisible = false;
   const tiers = [
     [2, 2.4, 3.4], // bottom, height and width, in tree units
     [3.3, 2.2, 2.6],
@@ -662,6 +703,7 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
     const t = own(trunk.createInstance("t"));
     t.position.set(x, 1.2 * s, z);
     t.scaling.setAll(s);
+    t.freezeWorldMatrix();
     meshes.push(t);
     const bark = 0.85 + vary() * 0.3;
     t.instancedBuffers.color = new Color4(bark, bark * (0.95 + vary() * 0.1), bark, 1);
@@ -673,7 +715,7 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
     sway.position.set(x, 2 * s, z);
     sway.scaling.setAll(s);
     sway.rotation.y = vary() * Math.PI * 2;
-    swaying.push({ node: sway, phase: vary() * 10 });
+    const phase = vary() * 10;
     const part = (source: Mesh, bottom: number, height: number, width: number, light = 1, tilt = 0, yaw = 0) => {
       const m = source.createInstance("c");
       m.parent = sway;
@@ -696,33 +738,37 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
         if (cap) part(cap, bottom + height * 0.55 - 0.03, height * 0.45, width * 0.45 * 1.08);
       });
     meshes.forEach((m) => shadows.addShadowCaster(m));
+    swaying.push({ x, z, meshes, node: sway, phase, on: true });
     const tree = { x, z, radius: 0.7 * s, crown: (spec.dead ? 0.6 : 1.7) * s, height: (spec.dead ? 5.1 : 6.6) * s, meshes, fade: 1, setFade: fader(meshes) };
     trees.push(tree);
     obstacles.push(tree);
     placed++;
   }
 
+  // Rocks and sprinkles never move or fade, so each kind is one mesh drawn many times, which costs one draw call
+  // instead of one mesh apiece for the scene to check every frame.
   const rock = own(MeshBuilder.CreateSphere("rock", { diameter: 1.4, segments: 6 }, scene));
   rock.material = material(scene, hex(spec.rock));
-  rock.isVisible = false;
-  fadesAt(rock, 100);
   for (let i = 0; i < (home ? 8 : 30); i++) {
     const at = spotIn(spec.id, rand, MAP_RADIUS);
     if (!at || !clear(at[0], at[1], 6)) continue;
-    const r = own(rock.createInstance("r"));
-    r.position.set(at[0], 0.2, at[1]);
-    r.scaling.set(0.6 + rand(), 0.4 + rand() * 0.5, 0.6 + rand());
+    const size = new Vector3(0.6 + rand(), 0.4 + rand() * 0.5, 0.6 + rand());
+    rock.thinInstanceAdd(Matrix.Compose(size, Quaternion.Identity(), new Vector3(at[0], 0.2, at[1])), false);
   }
 
   const sprinkle = own(MeshBuilder.CreateSphere("sprinkle", { diameter: 0.25, segments: 4 }, scene));
   sprinkle.material = material(scene, hex(spec.sprinkle), spec.sprinkleGlows);
-  sprinkle.isVisible = false;
-  fadesAt(sprinkle, 60);
   for (let i = 0; i < (home ? 60 : 120); i++) {
     const at = spotIn(spec.id, rand, MAP_RADIUS);
     if (!at) continue;
-    own(sprinkle.createInstance("f")).position.set(at[0], 0.12, at[1]);
+    sprinkle.thinInstanceAdd(Matrix.Translation(at[0], 0.12, at[1]), false);
   }
+  for (const m of [rock, sprinkle]) {
+    m.thinInstanceBufferUpdated("matrix");
+    m.thinInstanceRefreshBoundingInfo();
+    m.isVisible = m.thinInstanceCount > 0;
+  }
+  if (spec.sprinkleGlows) glowing(sprinkle);
 
   if (spec.lava) {
     const lavaMat = material(scene, new Color3(1, 0.35, 0.1), true);
@@ -733,6 +779,7 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
       if (!at || !clear(at[0], at[1], 9 + radius)) continue;
       const pool = own(MeshBuilder.CreateDisc("lava", { radius, tessellation: 24 }, scene));
       pool.material = lavaMat;
+      glowing(pool);
       pool.rotation.x = Math.PI / 2;
       pool.position.set(at[0], 0.04, at[1]);
       obstacles.push({ x: at[0], z: at[1], radius });
@@ -770,7 +817,7 @@ function buildRegion(scene: Scene, spec: AreaSpec, { root, shadows, clearOf, bed
     mesh.material = starMat;
     mesh.position.copyFrom(toMap(spec.id, x, z));
     mesh.position.y = y;
-    world.stars.push({ id, mesh, baseY: y, collected: false });
+    world.stars.push({ id, mesh: glowing(mesh), baseY: y, collected: false });
   });
 }
 
@@ -801,7 +848,7 @@ export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Gr
   scene.fogEnd = 95;
   const sky = buildSky(scene);
 
-  const swaying: { node: TransformNode; phase: number }[] = [];
+  const swaying: Scenery[] = [];
   const gates = WORLDS.map((id) => gateOf(id).scale((HOME_RADIUS - 1.5) / HOME_RADIUS)); // just on the home's side of each line
   // Clear of trees: dragons' spots, beds, the signs, where the lines meet, and a way from the middle out into each world.
   const ways = WORLDS.flatMap((id) => Array.from({ length: 9 }, (_, i) => spawnOf(id).at.scale(i / 8)));
@@ -815,11 +862,13 @@ export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Gr
   lineMat.disableLighting = true;
   const ring = ringPiece(scene, HOME_RADIUS - 0.2, HOME_RADIUS + 0.2, 0, Math.PI * 2);
   ring.material = lineMat;
+  glowing(ring);
   ring.parent = root;
   ring.position.y = 0.06;
   for (const a of spokes()) {
     const spoke = MeshBuilder.CreateGround("line", { width: 0.4, height: MAP_RADIUS - HOME_RADIUS }, scene);
     spoke.material = lineMat;
+    glowing(spoke);
     spoke.parent = root;
     spoke.isPickable = false;
     spoke.rotation.y = a;
@@ -908,14 +957,29 @@ export function buildWorld(scene: Scene, shadows: ShadowGenerator, grade: (g: Gr
     });
   };
 
+  // The scene checks every mesh it holds each frame, so a tree he can't see leaves it: one behind the camera, or past
+  // the haze where it would be all fog. Trees close by stay, since their shadows reach the ground in view.
   // Only trees near him sway; far ones are too small to see it, and each moving crown costs a little.
+  const ahead = new Vector3();
   scene.onBeforeRenderObservable.add(() => {
     const t = performance.now() / 1000;
-    const eye = scene.activeCamera!.position;
-    for (const { node, phase } of swaying) {
-      if (Math.abs(node.position.x - eye.x) > 60 || Math.abs(node.position.z - eye.z) > 60) continue;
-      node.rotation.x = 0.03 * Math.sin(t * 1.3 + phase);
-      node.rotation.z = 0.03 * Math.sin(t * 1.05 + phase * 1.7);
+    const camera = scene.activeCamera!;
+    const eye = camera.position;
+    camera.getDirectionToRef(Vector3.Forward(), ahead);
+    const flat = Math.hypot(ahead.x, ahead.z) || 1;
+    for (const tree of swaying) {
+      const dx = tree.x - eye.x;
+      const dz = tree.z - eye.z;
+      const d = Math.hypot(dx, dz);
+      // 60° either side: the view is about 32° each side on an iPad, and the rest covers a turn and the crowns' width.
+      const on = d < SHADE_REACH || (d < scene.fogEnd && (dx * ahead.x + dz * ahead.z) / (d * flat) > 0.5);
+      if (on !== tree.on) {
+        tree.on = on;
+        for (const m of tree.meshes) m.setEnabled(on);
+      }
+      if (!on || d > SWAY_REACH) continue;
+      tree.node.rotation.x = 0.03 * Math.sin(t * 1.3 + tree.phase);
+      tree.node.rotation.z = 0.03 * Math.sin(t * 1.05 + tree.phase * 1.7);
     }
   });
 

@@ -113,6 +113,26 @@ export interface Dragon {
   phase: number;
 }
 
+// Parts that move together and share a material become one mesh, so a dragon costs a few draw calls instead of two dozen.
+function mergeParts(meshes: Mesh[]): Mesh[] {
+  const groups = new Map<string, Mesh[]>();
+  for (const m of meshes) {
+    const key = `${m.parent!.uniqueId}/${m.material!.uniqueId}`;
+    groups.set(key, [...(groups.get(key) ?? []), m]);
+  }
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0];
+    const parent = group[0].parent;
+    // Unparented, each part's own position and turn are what the merge bakes in.
+    for (const m of group) m.parent = null;
+    const merged = Mesh.MergeMeshes(group, true, true)!;
+    merged.name = group[0].name;
+    merged.parent = parent;
+    merged.isPickable = false;
+    return merged;
+  });
+}
+
 export function makeDragon(scene: Scene, spec: DragonSpec): Dragon {
   const color = Color3.FromHexString(spec.color);
   const root = new TransformNode(spec.id, scene);
@@ -198,7 +218,7 @@ export function makeDragon(scene: Scene, spec: DragonSpec): Dragon {
   heart.isVisible = false;
 
   return {
-    spec, root, head, wings, meshes, skin, heart, fullSize,
+    spec, root, head, wings, meshes: mergeParts(meshes), skin, heart, fullSize,
     headBaseY: head.position.y,
     grump: 100,
     friend: false,

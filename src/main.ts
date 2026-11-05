@@ -18,7 +18,7 @@ import { DRAGONS, WEAKNESS, type Element } from "./dragons";
 import { bolt, burst, trail, type Sparkle } from "./effects";
 import { MAP_RADIUS, regionAt, spawnOf, toMap, WORLDS } from "./map";
 import { PathGrid } from "./path";
-import { buildWorld, setupFilm, setupLights, type Star, type Weights, type World } from "./world";
+import { buildWorld, glowing, QUALITY, setupFilm, setupLights, type Star, type Weights, type World } from "./world";
 import { setBattleMusic, setMuted, sfx, startMusic, unlockAudio } from "./audio";
 import { load, MAX_FOLLOWERS, save } from "./save";
 import { ui } from "./ui";
@@ -44,25 +44,24 @@ const data = load();
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const engine = new Engine(canvas, true, { stencil: true });
-engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, 1.5));
 const scene = new Scene(engine);
 const shadows = setupLights(scene);
-const glow = new GlowLayer("glow", scene);
+// Only what glows is in it (glowing in src/world.ts), at a quarter of the screen's size with half the blur, which
+// spreads the same distance on screen.
+const glow = new GlowLayer("glow", scene, { mainTextureRatio: 0.25 });
 glow.intensity = 0.6;
-// A portal or tree fading out of his way fades its glow too, or the bloom would hide him in light.
-// Signs are white emissive only to show their pictures unlit; they block the glow behind them rather than glow themselves.
-glow.customEmissiveColorSelector = (mesh, _subMesh, material, color) => {
-  const e = mesh.metadata?.sign ? Color3.Black() : ((material as StandardMaterial).emissiveColor ?? Color3.Black());
-  color.set(e.r * mesh.visibility, e.g * mesh.visibility, e.b * mesh.visibility, material.alpha);
-};
+glow.blurKernelSize = 16;
 
 const wizard = makeWizard(scene);
 applyLook(wizard, data.look);
 wizard.meshes.forEach((m) => shadows.addShadowCaster(m));
+Object.values(wizard.tips).forEach(glowing);
 
 const dragons = DRAGONS.map((spec) => {
   const d = makeDragon(scene, spec);
   d.meshes.forEach((m) => shadows.addShadowCaster(m));
+  // Eyes and the King's crown are the parts made to glow.
+  d.meshes.filter((m) => !(m.material as StandardMaterial).emissiveColor.equals(Color3.Black())).forEach(glowing);
   if (data.friends.includes(spec.id)) makeFriend(d);
   return d;
 });
@@ -89,7 +88,9 @@ camera.upperBetaLimit = 1.4;
 camera.panningSensibility = 0;
 camera.angularSensibilityX = 600;
 camera.angularSensibilityY = 600;
-const grade = setupFilm(scene, camera);
+const film = setupFilm(scene, camera);
+let quality = 0;
+film.quality(quality);
 
 function glowMaterial(color: Color3, alpha = 1): StandardMaterial {
   const m = new StandardMaterial("glow", scene);
@@ -102,11 +103,13 @@ function glowMaterial(color: Color3, alpha = 1): StandardMaterial {
 
 const marker = MeshBuilder.CreateTorus("marker", { diameter: 1.2, thickness: 0.1, tessellation: 32 }, scene);
 marker.material = glowMaterial(new Color3(1, 0.95, 0.6));
+glowing(marker);
 marker.isPickable = false;
 marker.isVisible = false;
 
 const shieldBubble = MeshBuilder.CreateSphere("shield", { diameter: 3.4 }, scene);
 shieldBubble.material = glowMaterial(SPELL_COLORS.shield, 0.25);
+glowing(shieldBubble);
 shieldBubble.parent = wizard.root;
 shieldBubble.position.y = 1.2;
 shieldBubble.isPickable = false;
@@ -388,7 +391,7 @@ function updateShadows() {
 }
 
 function orb(from: Vector3, to: () => Vector3, kind: Sparkle, duration: number, onArrive: () => void) {
-  const m = MeshBuilder.CreateSphere("orb", { diameter: 0.5, segments: 8 }, scene);
+  const m = glowing(MeshBuilder.CreateSphere("orb", { diameter: 0.5, segments: 8 }, scene));
   m.material = glowMaterial(kind === "gold" ? new Color3(1, 0.85, 0.3) : SPELL_COLORS[kind]);
   m.isPickable = false;
   m.position.copyFrom(from);
@@ -1001,15 +1004,30 @@ ui.friends(data.friends.length, dragons.length);
 ui.stars(data.stars.length);
 ui.muted(data.muted);
 
-world = buildWorld(scene, shadows, grade, DRAGONS.map((d) => toMap(d.area, ...d.home)), [...beds.values()], data.stars);
-world.walls.forEach((w) => glow.addExcludedMesh(w));
+world = buildWorld(scene, shadows, (g) => film.grade(g), DRAGONS.map((d) => toMap(d.area, ...d.home)), [...beds.values()], data.stars);
 world.setFriends(data.friends);
 makeGrid();
 for (const d of dragons) if (!d.friend) d.root.rotation.y = yawTo(d.root.position, spawnOf(d.spec.area).at);
 place("forest");
 updateLook(1);
 
+// A device too slow for the finest drawing steps down a level, judged at startup by its frame times once the shaders
+// are built: the median of 60 frames, after 30 to settle. Under about 45 fps is too slow.
+let probe: number[] | null = [];
+let lastFrame = 0;
+function probeQuality() {
+  if (!probe) return;
+  const t = performance.now();
+  if (lastFrame) probe.push(t - lastFrame);
+  lastFrame = t;
+  if (probe.length < 90) return;
+  const median = probe.slice(30).sort((a, b) => a - b)[30];
+  probe = median > 22 && quality < QUALITY.length - 1 ? [] : null;
+  if (probe) film.quality(++quality);
+}
+
 scene.onBeforeRenderObservable.add(() => {
+  probeQuality();
   const dt = Math.min(engine.getDeltaTime() / 1000, 0.05);
   now += dt;
   updateRide(dt);
@@ -1031,4 +1049,4 @@ window.addEventListener("resize", () => engine.resize());
 if (import.meta.env.PROD && "serviceWorker" in navigator) void navigator.serviceWorker.register("sw.js");
 
 // Exposed for play-testing from the browser console.
-Object.assign(window, { game: { walkTo, cast, toggleRide, travel, swap, dragons, wizard, data, get world() { return world; }, get mode() { return mode; }, get currentArea() { return currentArea; }, camera } });
+Object.assign(window, { game: { walkTo, cast, toggleRide, travel, swap, dragons, wizard, data, film, get quality() { return quality; }, get world() { return world; }, get mode() { return mode; }, get currentArea() { return currentArea; }, camera } });
