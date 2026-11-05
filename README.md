@@ -8,7 +8,9 @@ An iPad game for a 7-year-old. Touch the ground to walk; the wizard finds his wa
 - **His wizard**: the 🧙 button on the title screen picks the robe, crystal, staff, hood or hat, and his name, which titles the start screen.
 - **Saved progress**: friends, stars, his wizard's look and name, and the sound setting stay on the iPad between visits. Holding the 🔄 on the title screen for 3 seconds starts again, keeping his wizard; the old save is kept under `wizard-game-v1-before-restart`, so copying that back to `wizard-game-v1` from the console undoes it.
 
-What's next is in `ROADMAP.md`. Babylon.js, TypeScript and Vite. The characters are placeholder primitives until the rigged 3D models are bought. Everything imports Babylon through `src/babylon.ts`, which keeps the code to about 2 MB; the nature models add 0.5 MB.
+What's next is in `ROADMAP.md`. Babylon.js, TypeScript and Vite. The wizard is still placeholder primitives until his bought model goes in. Everything imports Babylon through `src/babylon.ts`, which keeps the code to about 2 MB; the nature models add 0.5 MB and the dragon 0.75 MB.
+
+The dragons are one bought model, Toon Dragons by SPiN AG from the Unity Asset Store, which may not be shared, so the repo never holds the source files. `tools/pack-dragon.mjs` turns the converted FBX in `~/wizard-game-models/toon-dragons/src` (outside git) into one scrambled `public/models/dragon.bin`, cut down for the iPad, with its textures made by `tools/dragon-textures.py` in Blender. It needs a Mac with those files and Blender: `node tools/pack-dragon.mjs ~/wizard-game-models/toon-dragons/src`. `src/dragon-model.ts` reads it, recolors the red skin per dragon from its `body`, `belly` and `wings` colors, and plays the clips (`idle`, `walk`, `fly`, `attack`, `hurt`, `roar`, `bow`).
 
 ## Adding a dragon from his description
 

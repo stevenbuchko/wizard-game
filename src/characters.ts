@@ -1,8 +1,9 @@
 import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from "./babylon";
+import { type DragonBody, makeDragonBody, recolorOf } from "./dragon-model";
 import type { DragonSpec, Element } from "./dragons";
 import type { Look } from "./save";
 
-// Placeholder characters built from primitives, to be swapped for rigged 3D models.
+// The wizard is still built from primitives; the dragons are the Toon Dragons model (src/dragon-model.ts).
 
 export type Spell = Element | "shield";
 
@@ -99,103 +100,44 @@ export function applyLook(w: Wizard, look: Look) {
 export interface Dragon {
   spec: DragonSpec;
   root: TransformNode;
+  body: DragonBody; // the model: its clips, its head and its saddle
   head: TransformNode;
-  wings: TransformNode[]; // left, right
   meshes: Mesh[];
   skin: StandardMaterial;
   heart: Mesh; // floats over a friend, so a friend waiting at home never looks wild
   fullSize: number; // the root's scaling at full size; friends following him shrink below it
-  headBaseY: number;
   grump: number; // 100 is grumpy, 0 is a friend
   friend: boolean;
   calmUntil: number; // no face-off before this time, so walking away works
   flinch: number;
+  pitch: number; // the head tipped up for a roar, on top of the clip
   phase: number;
 }
 
-// Parts that move together and share a material become one mesh, so a dragon costs a few draw calls instead of two dozen.
-function mergeParts(meshes: Mesh[]): Mesh[] {
-  const groups = new Map<string, Mesh[]>();
-  for (const m of meshes) {
-    const key = `${m.parent!.uniqueId}/${m.material!.uniqueId}`;
-    groups.set(key, [...(groups.get(key) ?? []), m]);
-  }
-  return [...groups.values()].map((group) => {
-    if (group.length === 1) return group[0];
-    const parent = group[0].parent;
-    // Unparented, each part's own position and turn are what the merge bakes in.
-    for (const m of group) m.parent = null;
-    const merged = Mesh.MergeMeshes(group, true, true)!;
-    merged.name = group[0].name;
-    merged.parent = parent;
-    merged.isPickable = false;
-    return merged;
-  });
-}
-
 export function makeDragon(scene: Scene, spec: DragonSpec): Dragon {
-  const color = Color3.FromHexString(spec.color);
   const root = new TransformNode(spec.id, scene);
   root.position.set(spec.home[0], 0, spec.home[1]);
   const fullSize = 1.3 * (spec.size ?? 1);
   root.scaling.setAll(fullSize);
-  const skin = material(scene, color);
-  const belly = material(scene, Color3.FromHexString(spec.belly));
-  const wingMat = material(scene, spec.wings ? Color3.FromHexString(spec.wings) : color.scale(0.75));
-  wingMat.backFaceCulling = false;
-  const horn = material(scene, new Color3(0.9, 0.82, 0.6));
-  const eye = material(scene, new Color3(1, 0.8, 0.2), new Color3(0.6, 0.45, 0.05));
-  const hornLength = spec.horns ?? 0.7;
-  const meshes: Mesh[] = [];
-  const add = (m: Mesh, mat: StandardMaterial, pos: Vector3, parent: TransformNode = root) => {
-    meshes.push(part(m, parent, mat, pos));
-    return m;
-  };
+  const color = Color3.FromHexString(spec.color);
+  const body = makeDragonBody(scene, spec.id, root, {
+    body: color,
+    belly: Color3.FromHexString(spec.belly),
+    wings: spec.wings ? Color3.FromHexString(spec.wings) : color.scale(0.75),
+  });
+  if (spec.lava) recolorOf(body.skin).lava = Color3.FromHexString(spec.belly);
+  const meshes: Mesh[] = [body.mesh];
 
-  add(MeshBuilder.CreateSphere("body", { diameterX: 2.0, diameterY: 1.6, diameterZ: 3.0 }, scene), skin, new Vector3(0, 1.7, 0));
-  add(MeshBuilder.CreateSphere("belly", { diameterX: 1.5, diameterY: 1.2, diameterZ: 2.4 }, scene), belly, new Vector3(0, 1.45, 0.25));
-  for (const x of [-0.7, 0.7]) {
-    for (const z of [-0.9, 0.9]) {
-      add(MeshBuilder.CreateCylinder("leg", { height: 1.3, diameterTop: 0.45, diameterBottom: 0.35 }, scene), skin, new Vector3(x, 0.65, z));
-    }
-  }
-  for (let i = 0; i < 5; i++) {
-    add(MeshBuilder.CreateSphere("tail", { diameter: 0.8 - i * 0.14 }, scene), skin, new Vector3(0, 1.5 - i * 0.22, -1.5 - i * 0.6));
-  }
-  for (const z of [-0.9, -0.3, 0.3, 0.9]) {
-    add(MeshBuilder.CreateCylinder("spine", { height: 0.4, diameterTop: 0, diameterBottom: 0.25 }, scene), horn, new Vector3(0, 2.5, z));
-  }
-  const neck = add(MeshBuilder.CreateCylinder("neck", { height: 1.7, diameterTop: 0.55, diameterBottom: 0.9 }, scene), skin, new Vector3(0, 2.6, 1.25));
-  neck.rotation.x = 0.6;
-
-  const head = new TransformNode("head", scene);
-  head.parent = root;
-  head.position = new Vector3(0, 3.4, 1.95);
-  add(MeshBuilder.CreateSphere("skull", { diameterX: 0.95, diameterY: 0.8, diameterZ: 1.2 }, scene), skin, Vector3.Zero(), head);
-  add(MeshBuilder.CreateSphere("snout", { diameterX: 0.7, diameterY: 0.5, diameterZ: 0.8 }, scene), skin, new Vector3(0, -0.15, 0.6), head);
-  for (const x of [-0.3, 0.3]) {
-    add(MeshBuilder.CreateSphere("eye", { diameter: 0.2 }, scene), eye, new Vector3(x, 0.15, 0.35), head);
-    const h = add(MeshBuilder.CreateCylinder("horn", { height: hornLength, diameterTop: 0, diameterBottom: 0.2 }, scene), horn, new Vector3(x * 0.8, 0.1 + hornLength / 2, -0.3), head);
-    h.rotation.x = -0.7;
-  }
+  // The heart and crown ride on the skull, placed where they'd sit with the dragon at rest.
+  const top = body.mount(new Vector3(0, body.headTop, body.headZ));
   if (spec.crown) {
     const gold = material(scene, new Color3(1, 0.8, 0.25), new Color3(0.35, 0.25, 0.05));
-    add(MeshBuilder.CreateTorus("band", { diameter: 0.7, thickness: 0.1, tessellation: 24 }, scene), gold, new Vector3(0, 0.42, -0.05), head);
+    meshes.push(part(MeshBuilder.CreateTorus("band", { diameter: 0.7, thickness: 0.1, tessellation: 24 }, scene), top, gold, new Vector3(0, -0.1, 0)));
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2;
-      add(MeshBuilder.CreateCylinder("point", { height: 0.32, diameterTop: 0, diameterBottom: 0.14, tessellation: 6 }, scene), gold, new Vector3(Math.sin(a) * 0.33, 0.58, Math.cos(a) * 0.33 - 0.05), head);
+      meshes.push(part(MeshBuilder.CreateCylinder("point", { height: 0.32, diameterTop: 0, diameterBottom: 0.14, tessellation: 6 }, scene), top, gold, new Vector3(Math.sin(a) * 0.33, 0.06, Math.cos(a) * 0.33)));
     }
   }
-
-  const wings = [-1, 1].map((side) => {
-    const pivot = new TransformNode("wing", scene);
-    pivot.parent = root;
-    pivot.position = new Vector3(side * 0.8, 2.3, 0.2);
-    const wing = add(MeshBuilder.CreateDisc("membrane", { radius: 2.2, tessellation: 3 }, scene), wingMat, new Vector3(side * 1.4, 0, 0), pivot);
-    wing.rotation.x = Math.PI / 2;
-    wing.scaling.set(side, 0.9, 1);
-    return pivot;
-  });
 
   const heart = MeshBuilder.CreatePlane("heart", { size: 0.9 }, scene);
   const heartTexture = new DynamicTexture("heart", { width: 128, height: 128 }, scene, false);
@@ -211,19 +153,26 @@ export function makeDragon(scene: Scene, spec: DragonSpec): Dragon {
   heartMat.emissiveColor = Color3.White();
   heartMat.disableLighting = true;
   heart.material = heartMat;
-  heart.parent = head;
-  heart.position.y = 1.3 + (spec.crown ? 0.4 : 0);
+  heart.parent = top;
+  heart.position.y = 0.9 + (spec.crown ? 0.4 : 0);
   heart.billboardMode = Mesh.BILLBOARDMODE_ALL;
   heart.isPickable = false;
   heart.isVisible = false;
 
   return {
-    spec, root, head, wings, meshes: mergeParts(meshes), skin, heart, fullSize,
-    headBaseY: head.position.y,
+    spec, root, body, head: body.head, meshes, skin: body.skin, heart, fullSize,
     grump: 100,
     friend: false,
     calmUntil: 0,
     flinch: 0,
+    pitch: 0,
     phase: Math.random() * 6,
   };
+}
+
+// Its own parts go with the model; the heart and crown go with the root.
+export function disposeDragon(d: Dragon) {
+  for (const m of [...d.meshes.slice(1), d.heart]) m.dispose(false, true);
+  d.body.dispose();
+  d.root.dispose(false, true);
 }

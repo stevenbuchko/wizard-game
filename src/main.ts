@@ -13,7 +13,8 @@ import {
   Vector3,
 } from "./babylon";
 import { AREAS, type AreaId } from "./areas";
-import { applyLook, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spell } from "./characters";
+import { applyLook, disposeDragon, makeDragon, makeWizard, SPELL_COLORS, type Dragon, type Spell } from "./characters";
+import { loadDragonModel } from "./dragon-model";
 import { DRAGONS, WEAKNESS, type DragonSpec, type Element } from "./dragons";
 import { bolt, burst, trail, type Sparkle } from "./effects";
 import { BABY_BEDS, babyOf, HATCH_DELAY, hatching, isBaby, NESTS, nextBaby } from "./hatch";
@@ -38,7 +39,6 @@ const SPELL_COOLDOWN = 0.7;
 const SHIELD_TIME = 2.5;
 const HEARTS = 3;
 const WIZARD_RADIUS = 0.4;
-const SADDLE = new Vector3(0, 2.55, -0.3);
 const PET_SIZE = 0.4; // friends walking with him shrink to pets, so they don't fill the screen
 const PET_HEIGHT = 0.7;
 const GROW_TIME = 0.5;
@@ -67,7 +67,7 @@ function addDragon(spec: DragonSpec): Dragon {
   const d = makeDragon(scene, spec);
   d.meshes.forEach((m) => shadows.addShadowCaster(m));
   // Eyes and the King's crown are the parts made to glow.
-  d.meshes.filter((m) => !(m.material as StandardMaterial).emissiveColor.equals(Color3.Black())).forEach(glowing);
+  d.meshes.filter((m) => m.material instanceof StandardMaterial && !m.material.emissiveColor.equals(Color3.Black())).forEach(glowing);
   if (data.friends.includes(spec.id)) makeFriend(d);
   for (const m of [...d.meshes, d.heart]) pickable.set(m, d);
   dragons.push(d);
@@ -82,9 +82,11 @@ function removeDragon(d: Dragon) {
   dragons.splice(dragons.indexOf(d), 1);
   petness.delete(d);
   greetedAt.delete(d);
-  d.root.dispose(false, true);
+  disposeDragon(d);
 }
 
+const nature = loadNature();
+await loadDragonModel(scene);
 DRAGONS.forEach(addDragon);
 
 // Each friend's bed at home: a ring round the middle of the map, each bed between two ways out so none is in his path,
@@ -227,7 +229,7 @@ function wizardChest(): Vector3 {
 function makeFriend(d: Dragon) {
   d.friend = true;
   d.grump = 0;
-  d.skin.emissiveColor = d.skin.diffuseColor.scale(0.2);
+  d.skin.emissiveColor = Color3.FromHexString(d.spec.color).scale(0.2);
   d.heart.isVisible = true;
 }
 
@@ -530,6 +532,7 @@ function startBattle(d: Dragon) {
   showGrump(d);
   ui.battle(true);
   setBattleMusic(true);
+  d.body.play("roar");
   sfx.roar();
   const helpers = followers();
   const spacing = 1.1 * Math.max(1, helpers.length / 3);
@@ -585,6 +588,7 @@ function hit(target: Dragon, spell: Spell, byFriend: boolean) {
   const phase = phaseOf(target);
   target.grump = Math.max(0, target.grump - damage * scale);
   target.flinch = strong ? 1 : 0.3;
+  if (strong) target.body.play("hurt");
   burst(scene, headOf(target), spell, strong ? 70 : 15);
   if (byFriend) sfx.weak();
   else if (strong) {
@@ -601,6 +605,7 @@ function hit(target: Dragon, spell: Spell, byFriend: boolean) {
 // The King changes element: a roar, a flash of the new color, and a moment before it puffs again.
 function newPhase(d: Dragon) {
   tint(d);
+  d.body.play("roar");
   sfx.roar();
   shake = 0.6;
   burst(scene, headOf(d), elementOf(d), 90);
@@ -610,6 +615,7 @@ function newPhase(d: Dragon) {
 
 function friendHelp(f: Dragon, target: Dragon) {
   raisedUntil.set(f, now + 0.6);
+  f.body.play("attack");
   const kind = f.spec.phases ? elementOf(f) : f.spec.element;
   orb(headOf(f), () => headOf(target), kind, 0.7, () => hit(target, kind, true));
 }
@@ -617,6 +623,7 @@ function friendHelp(f: Dragon, target: Dragon) {
 function befriend(d: Dragon) {
   const before = followers();
   makeFriend(d);
+  d.body.play("bow");
   helpAt.clear();
   data.friends.push(d.spec.id);
   // A new friend walks with him, and the oldest choice flies home to make room.
@@ -658,6 +665,7 @@ function befriend(d: Dragon) {
 }
 
 function dragonPuff(d: Dragon) {
+  d.body.play("attack");
   orb(headOf(d), wizardChest, elementOf(d), 0.8, () => {
     if (foe !== d) return;
     if (now < shieldUntil) {
@@ -718,7 +726,7 @@ function toggleRide() {
   walkTarget = null;
   marker.isVisible = false;
   wizard.root.parent = d.root;
-  wizard.root.position.copyFrom(SADDLE);
+  wizard.root.position.copyFrom(d.body.saddle);
   wizard.root.rotation.y = 0;
   wizard.root.scaling.setAll(1 / d.root.scaling.x);
   burst(scene, wizardChest(), "gold", 40);
@@ -936,14 +944,12 @@ function updateDragons(dt: number) {
     }
     if (d === riding && d.root.position.y > 0.5) moving = true;
     d.phase += dt * (moving ? 7 : 1.6);
-    const flap = 0.35 + Math.sin(d.phase) * (moving ? 0.5 : 0.25);
-    d.wings[0].rotation.z = -flap;
-    d.wings[1].rotation.z = flap;
+    d.body.play(d.root.position.y > 0.5 ? "fly" : moving ? "walk" : "idle");
     d.flinch = Math.max(0, d.flinch - dt * 2.5);
     d.root.rotation.z = Math.sin(now * 40) * 0.06 * d.flinch;
     const lookUp = (d === foe && windup) || (raisedUntil.get(d) ?? 0) > now ? -0.5 : 0;
-    d.head.rotation.x += (lookUp - d.head.rotation.x) * Math.min(1, dt * 8);
-    d.head.position.y = d.headBaseY + Math.sin(d.phase * 0.5) * 0.06;
+    d.pitch += (lookUp - d.pitch) * Math.min(1, dt * 8);
+    d.body.look(d.pitch);
   }
   for (const d of homeless) flyOff(d);
 }
@@ -967,6 +973,7 @@ function updateBattle() {
   // The dragon looks up for a moment before it puffs, so he has time to tap the shield.
   if (!windup && now > nextPuffAt - 0.8) {
     windup = true;
+    foe.body.play("roar");
     sfx.growl();
   }
   if (now >= nextPuffAt) {
@@ -1125,7 +1132,7 @@ ui.hearts(hearts);
 ui.stars(data.stars.length);
 ui.muted(data.muted);
 
-await loadNature();
+await nature;
 world = buildWorld(scene, shadows, (g) => film.grade(g), DRAGONS.map((d) => toMap(d.area, ...d.home)), [...beds.values()], data.stars);
 showFriends();
 makeGrid();
