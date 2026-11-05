@@ -22,13 +22,16 @@ Keep the fade in `fader` (`src/world.ts`) working with any new tree meshes.
 
 ## 2. Swap in the bought dragon and wizard
 
-**Status:** the dragon is done 2026-11-05 (`e284272`, then `499126d` so the rider moves with the back and dragons flap out of step). The wizard is next, waiting on Steven to download Hand Painted Wizard and put the `.unitypackage` in `~/wizard-game-models/downloads`. The sellers weren't asked (Steven, 2026-11-04), so the license question is open.
+**Status:** done 2026-11-05. The dragon in `e284272`, then `499126d` so the rider moves with the back and dragons flap out of step; the wizard in `9e8e74d`. The sellers weren't asked (Steven, 2026-11-04), so the license question is still open. Still to come from Mixamo, which needs Steven's Adobe login: a hurt and a cheer for the wizard (he wobbles when hit, and looks round with his second idle when he makes a friend).
 
-What the dragon taught, for the wizard:
-- Blender can't import these C4D-rigged FBX files. `tools/pack-dragon.mjs` reads them with three's `FBXLoader` in Node instead, and the same route should work for the wizard; some of its tracks come out malformed and need skipping.
-- No glTF loader: the pack is quantized arrays the game reads straight into a `Mesh` and `Skeleton` (`src/dragon-model.ts`), which kept the code growth to about 63 KB.
-- Colors come from a material plugin that gradient-maps the painted texture, not a mask; the robe can likely do the same.
-- Download went from about 2.7 MB to 3.5 MB, agreed with Steven 2026-11-05. The frame time on the Mac went from 0.9 to 1.2–1.6 ms; the iPad wasn't measured.
+What the wizard taught:
+- Same route as the dragon (`tools/pack-wizard.mjs`, three's `FBXLoader` in Node), but no Blender: the Mac's `sips` shrinks the two textures. The staff is its own FBX, sitting exactly on `StickBone`, so it goes in rigid on that bone.
+- Every clip track has to be packed, even ones that hold still: the clips hold bones away from the model file's rest pose, and leaving them out laid the staff flat.
+- His file's faces already wind the way Babylon wants after mirroring, unlike the dragon's; the packer votes per part from the normals.
+- The hat's brim is two islands of the painted layout, cut out by height and reach, so the hood is the hat without its brim.
+- A `MaterialPluginBase` can't be switched off with `_enable(false)`, so every staff, wood included, goes through the recolor.
+- His walk clip would have to play five times over at the game's walking speed, so he runs. He's scaled about 12% past the placeholder's head height, being slimmer.
+- Download 3.5 → 3.9 MB, agreed with Steven 2026-11-05. Frame time on the Mac unchanged (home 1.6 → 1.7 ms, face-off 1.6 → 1.6, King's battle 1.4); the iPad wasn't measured.
 
 **Why:** the characters are what he looks at most, and they're still primitives. The shortlist he picked from, with prices, licenses and the other options: https://claude.ai/artifact/RPZvxT7K3jKgoBq2NiGwga. These models replace the primitive characters entirely, so the earlier plan to sculpt better primitives is dropped.
 
