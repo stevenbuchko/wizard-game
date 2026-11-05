@@ -181,7 +181,11 @@ Things to watch:
 
 ## 8. Fast on the iPad
 
-**Status:** ready. Steven, 2026-11-04: "it's really slow on ipad now."
+**Status:** done 2026-11-04 (`a897b26`). Not measured on the iPad itself; measured in the browser at the iPad's canvas size (1770×1230).
+
+**As built:** the costs were on the CPU, not the GPU. The glow layer drew every visible mesh a second time; it now draws only what glows (`glowing` in `src/world.ts`: spells, crystal, eyes, stars, lines, lava, glowing ground) at a quarter of the screen's size. Trees behind the camera or past the fog's end leave the scene, and only those within 35 m sway. Rocks and sprinkles are thin instances, and each dragon's parts merge into about 8 meshes (`mergeParts` in `src/characters.ts`). The worst find: changing the scene's image-processing exposure or contrast tells all 127 materials, which flag every mesh, about 13 ms a frame on a Mac whenever the look blend moves (crossing a line, flying); the grade now has its own configuration on the film pass. A startup probe (`probeQuality` in `src/main.ts`, levels in `QUALITY`) steps from 1.5× pixels with 4× MSAA to 1.25× with FXAA, then 1×, while frames run under about 45 fps. Per frame at 1180×820, CPU throttled 4× (synced to the GPU): middle 17.9 → 8.5 ms, forest 17.6 → 8.7, snow 18.2 → 8.6, volcano 16.8 → 8.8, summit 19.6 → 8.4, riding 92.8 → 10.1, King's battle 17.5 → 11.8, face-off with friends 16.6 → 8.7. Unthrottled: CPU 3.1–3.9 → 1.0–1.8 ms, GPU 1.2–1.6 → 0.8–1.2 ms, draw calls 289–686 → 116–200. The hearts over friends now show yellow; the old glow washed them white. Testing tip: Playwright's plugin browser isn't installed, but Brave headless with `--use-angle=metal` drives the real GPU and accepts CDP CPU throttling; its rAF pacing is unreliable, so time `scene.render()` directly.
+
+**Was:** ready. Steven, 2026-11-04: "it's really slow on ipad now."
 
 **Why:** the one big world (item 5) put every region, dragon and tree in one scene, and the browser already measured it slower than the portal areas; it was never checked on the iPad itself. Every later item adds to the scene, so this goes first.
 
